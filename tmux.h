@@ -1384,7 +1384,7 @@ struct window {
 	struct timeval		 creation_time;
 
 	struct window_pane	*active;
-	struct window_panes 	 last_panes;
+	struct panelinks	 last_panelinks;
 	struct window_panes      z_index;
 	struct window_panes	 panes;
 	struct panelinks	 panelinks;
@@ -3483,9 +3483,9 @@ struct window_pane *window_pane_find_up(struct window_pane *);
 struct window_pane *window_pane_find_down(struct window_pane *);
 struct window_pane *window_pane_find_left(struct window_pane *);
 struct window_pane *window_pane_find_right(struct window_pane *);
-void		 window_pane_stack_push(struct window_panes *,
+void		 window_pane_stack_push(struct window *,
 		     struct window_pane *);
-void		 window_pane_stack_remove(struct window_panes *,
+void		 window_pane_stack_remove(struct window *,
 		     struct window_pane *);
 void		 window_set_name(struct window *, const char *);
 void		 window_add_ref(struct window *, const char *);

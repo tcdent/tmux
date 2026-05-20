@@ -92,6 +92,7 @@ cmd_select_pane_exec(struct cmd *self, struct cmdq_item *item)
 	struct window		*w = wl->window;
 	struct session		*s = target->s;
 	struct window_pane	*wp = target->wp, *activewp, *lastwp, *markedwp;
+	struct panelink		*lastpl;
 	struct options		*oo = wp->options;
 	char			*title;
 	const char		*style;
@@ -102,7 +103,8 @@ cmd_select_pane_exec(struct cmd *self, struct cmdq_item *item)
 		 * Check for no last pane found in case the other pane was
 		 * spawned without being visited (for example split-window -d).
 		 */
-		lastwp = TAILQ_FIRST(&w->last_panes);
+		lastpl = TAILQ_FIRST(&w->last_panelinks);
+		lastwp = (lastpl != NULL) ? lastpl->pane : NULL;
 		if (lastwp == NULL && window_count_panes(w, 1) == 2) {
 			lastwp = TAILQ_PREV(w->active, window_panes, entry);
 			if (lastwp == NULL)

@@ -2209,7 +2209,8 @@ static void *
 format_cb_pane_last(struct format_tree *ft)
 {
 	if (ft->wp != NULL) {
-		if (ft->wp == TAILQ_FIRST(&ft->wp->window->last_panes))
+		struct panelinks *lp = &ft->wp->window->last_panelinks;
+		if (!TAILQ_EMPTY(lp) && ft->wp == TAILQ_FIRST(lp)->pane)
 			return (xstrdup("1"));
 		return (xstrdup("0"));
 	}

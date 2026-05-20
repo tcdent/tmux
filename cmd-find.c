@@ -566,6 +566,7 @@ cmd_find_get_pane_with_window(struct cmd_find_state *fs, const char *pane)
 	const char		*errstr;
 	int			 idx;
 	struct window_pane	*wp;
+	struct panelink		*pl;
 	u_int			 n;
 
 	log_debug("%s: %s", __func__, pane);
@@ -582,9 +583,10 @@ cmd_find_get_pane_with_window(struct cmd_find_state *fs, const char *pane)
 
 	/* Try special characters. */
 	if (strcmp(pane, "!") == 0) {
-		fs->wp = TAILQ_FIRST(&fs->w->last_panes);
-		if (fs->wp == NULL)
+		pl = TAILQ_FIRST(&fs->w->last_panelinks);
+		if (pl == NULL)
 			return (-1);
+		fs->wp = pl->pane;
 		return (0);
 	} else if (strcmp(pane, "{up-of}") == 0) {
 		fs->wp = window_pane_find_up(fs->w->active);

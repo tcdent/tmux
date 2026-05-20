@@ -148,8 +148,8 @@ cmd_swap_pane_exec(struct cmd *self, struct cmdq_item *item)
 			window_set_active_pane(dst_w, src_wp, 1);
 	}
 	if (src_w != dst_w) {
-		window_pane_stack_remove(&src_w->last_panes, src_wp);
-		window_pane_stack_remove(&dst_w->last_panes, dst_wp);
+		window_pane_stack_remove(src_w, src_wp);
+		window_pane_stack_remove(dst_w, dst_wp);
 		colour_palette_from_option(&src_wp->palette, src_wp->options);
 		colour_palette_from_option(&dst_wp->palette, dst_wp->options);
 		layout_fix_panes(src_w, NULL);
