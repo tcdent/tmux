@@ -70,7 +70,7 @@ cmd_join_pane_exec(struct cmd *self, struct cmdq_item *item)
 	struct winlink		*src_wl, *dst_wl;
 	struct window		*src_w, *dst_w;
 	struct window_pane	*src_wp, *dst_wp;
-	struct panelink		*src_pl;
+	struct panelink		*src_pl, *dst_pl;
 	char			*cause = NULL;
 	int			 size, dst_idx;
 	int			 flags;
@@ -147,8 +147,9 @@ cmd_join_pane_exec(struct cmd *self, struct cmdq_item *item)
 	server_client_remove_pane(src_wp);
 	window_lost_pane(src_w, src_wp);
 	src_pl = panelink_find_by_pane(&src_w->panelinks, src_wp);
+	dst_pl = panelink_find_by_pane(&dst_w->panelinks, dst_wp);
 	TAILQ_REMOVE(&src_w->panes, src_wp, entry);
-	TAILQ_REMOVE(&src_w->z_index, src_wp, zentry);
+	TAILQ_REMOVE(&src_w->z_index, src_pl, zentry);
 	TAILQ_REMOVE(&src_w->panelinks, src_pl, entry);
 
 	src_wp->window = dst_w;
@@ -158,10 +159,10 @@ cmd_join_pane_exec(struct cmd *self, struct cmdq_item *item)
 	src_wp->flags |= (PANE_STYLECHANGED|PANE_THEMECHANGED);
 	if (flags & SPAWN_BEFORE) {
 		TAILQ_INSERT_BEFORE(dst_wp, src_wp, entry);
-		TAILQ_INSERT_BEFORE(dst_wp, src_wp, zentry);
+		TAILQ_INSERT_BEFORE(dst_pl, src_pl, zentry);
 	} else {
 		TAILQ_INSERT_AFTER(&dst_w->panes, dst_wp, src_wp, entry);
-		TAILQ_INSERT_AFTER(&dst_w->z_index, dst_wp, src_wp, zentry);
+		TAILQ_INSERT_AFTER(&dst_w->z_index, dst_pl, src_pl, zentry);
 	}
 	layout_assign_pane(lc, src_wp, 0);
 	colour_palette_from_option(&src_wp->palette, src_wp->options);

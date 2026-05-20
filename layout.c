@@ -238,13 +238,16 @@ void
 layout_fix_zindexes(struct window *w, struct layout_cell *lc)
 {
 	struct layout_cell	*lcchild;
+	struct panelink		*pl;
 
 	if (lc == NULL)
 		return;
 
 	switch (lc->type) {
 	case LAYOUT_WINDOWPANE:
-		TAILQ_INSERT_TAIL(&w->z_index, lc->wp, zentry);
+		pl = panelink_find_by_pane(&w->panelinks, lc->wp);
+		if (pl != NULL)
+			TAILQ_INSERT_TAIL(&w->z_index, pl, zentry);
 		break;
 	case LAYOUT_LEFTRIGHT:
 	case LAYOUT_TOPBOTTOM:

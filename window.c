@@ -646,6 +646,7 @@ void
 window_redraw_active_switch(struct window *w, struct window_pane *wp)
 {
 	struct grid_cell	*gc1, *gc2;
+	struct panelink		*pl;
 	int			 c1, c2;
 
 	if (wp == w->active)
@@ -677,8 +678,9 @@ window_redraw_active_switch(struct window *w, struct window_pane *wp)
 
 		/* If the pane is floating, move to the front. */
 		if (wp->flags & PANE_FLOATING) {
-			TAILQ_REMOVE(&w->z_index, wp, zentry);
-			TAILQ_INSERT_HEAD(&w->z_index, wp, zentry);
+			pl = panelink_find_by_pane(&w->panelinks, wp);
+			TAILQ_REMOVE(&w->z_index, pl, zentry);
+			TAILQ_INSERT_HEAD(&w->z_index, pl, zentry);
 			wp->flags |= PANE_REDRAW;
 		}
 
@@ -692,12 +694,14 @@ struct window_pane *
 window_get_active_at(struct window *w, u_int x, u_int y)
 {
 	struct window_pane	*wp;
+	struct panelink		*pl;
 	int			 pane_status, xoff, yoff;
 	u_int			 sx, sy;
 
 	pane_status = options_get_number(w->options, "pane-border-status");
 
-	TAILQ_FOREACH(wp, &w->z_index, zentry) {
+	TAILQ_FOREACH(pl, &w->z_index, zentry) {
+		wp = pl->pane;
 		if (!window_pane_visible(wp))
 			continue;
 		window_pane_full_size_offset(wp, &xoff, &yoff, &sx, &sy);
@@ -857,6 +861,11 @@ window_add_pane(struct window *w, struct window_pane *other, u_int hlimit,
 		other = w->active;
 
 	wp = window_pane_create(w, w->sx, w->sy, hlimit);
+
+	pl = panelink_add(&w->panelinks);
+	pl->window = w;
+	panelink_set_pane(pl, wp);
+
 	if (TAILQ_EMPTY(&w->panes)) {
 		log_debug("%s: @%u at start", __func__, w->id);
 		TAILQ_INSERT_HEAD(&w->panes, wp, entry);
@@ -874,15 +883,11 @@ window_add_pane(struct window *w, struct window_pane *other, u_int hlimit,
 			TAILQ_INSERT_AFTER(&w->panes, other, wp, entry);
 	}
 	if (~flags & SPAWN_FLOATING)
-		TAILQ_INSERT_TAIL(&w->z_index, wp, zentry);
+		TAILQ_INSERT_TAIL(&w->z_index, pl, zentry);
 	else {
 		wp->flags |= PANE_FLOATING;
-		TAILQ_INSERT_HEAD(&w->z_index, wp, zentry);
+		TAILQ_INSERT_HEAD(&w->z_index, pl, zentry);
 	}
-
-	pl = panelink_add(&w->panelinks);
-	pl->window = w;
-	panelink_set_pane(pl, wp);
 
 	return (wp);
 }
@@ -922,12 +927,12 @@ window_remove_pane(struct window *w, struct window_pane *wp)
 
 	window_lost_pane(w, wp);
 	TAILQ_REMOVE(&w->panes, wp, entry);
-	TAILQ_REMOVE(&w->z_index, wp, zentry);
 
 	pl = panelink_find_by_pane(&w->panelinks, wp);
-	if (pl != NULL)
+	if (pl != NULL) {
+		TAILQ_REMOVE(&w->z_index, pl, zentry);
 		panelink_remove(&w->panelinks, pl);
-	else
+	} else
 		window_pane_destroy(wp);
 }
 
@@ -1014,12 +1019,12 @@ window_destroy_panes(struct window *w)
 	while (!TAILQ_EMPTY(&w->panes)) {
 		wp = TAILQ_FIRST(&w->panes);
 		TAILQ_REMOVE(&w->panes, wp, entry);
-		TAILQ_REMOVE(&w->z_index, wp, zentry);
 
 		pl = panelink_find_by_pane(&w->panelinks, wp);
-		if (pl != NULL)
+		if (pl != NULL) {
+			TAILQ_REMOVE(&w->z_index, pl, zentry);
 			panelink_remove(&w->panelinks, pl);
-		else
+		} else
 			window_pane_destroy(wp);
 	}
 }

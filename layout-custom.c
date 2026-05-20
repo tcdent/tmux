@@ -64,12 +64,14 @@ layout_dump(struct window *w, struct layout_cell *root)
 	char			 layout[8192], *out;
 	int			 bracket = 0;
 	struct window_pane	*wp;
+	struct panelink		*pl;
 
 	*layout = '\0';
 	if (layout_append(root, layout, sizeof layout) != 0)
 		return (NULL);
 
-	TAILQ_FOREACH(wp, &w->z_index, zentry) {
+	TAILQ_FOREACH(pl, &w->z_index, zentry) {
+		wp = pl->pane;
 		if (~wp->flags & PANE_FLOATING)
 			break;
 		if (!bracket) {
@@ -178,6 +180,7 @@ layout_parse(struct window *w, const char *layout, char **cause)
 {
 	struct layout_cell	*lcchild, *tiled_lc = NULL, *floating_lc = NULL;
 	struct window_pane	*wp;
+	struct panelink		*pl;
 	u_int			 npanes, ncells, sx = 0, sy = 0;
 	u_short			 csum;
 	int			 n;
@@ -290,8 +293,8 @@ layout_parse(struct window *w, const char *layout, char **cause)
 
         /* Fix pane Z indexes. */
         while (!TAILQ_EMPTY(&w->z_index)) {
-                wp = TAILQ_FIRST(&w->z_index);
-		TAILQ_REMOVE(&w->z_index, wp, zentry);
+                pl = TAILQ_FIRST(&w->z_index);
+		TAILQ_REMOVE(&w->z_index, pl, zentry);
 	}
 	if (floating_lc != NULL)
 		layout_fix_zindexes(w, floating_lc);

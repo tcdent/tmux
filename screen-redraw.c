@@ -250,6 +250,7 @@ screen_redraw_cell_border(struct screen_redraw_ctx *ctx, struct window_pane *wp,
 	struct client		*c = ctx->c;
 	struct window		*w = c->session->curw->window;
 	struct window_pane	*wp2;
+	struct panelink		*zpl;
 	int			 sx = w->sx, sy = w->sy, sb_w, sb_pos, floating;
 
 	if (ctx->pane_scrollbars != 0)
@@ -283,7 +284,8 @@ screen_redraw_cell_border(struct screen_redraw_ctx *ctx, struct window_pane *wp,
 	 */
 
 	/* Check all the panes. */
-	TAILQ_FOREACH(wp2, &w->z_index, zentry) {
+	TAILQ_FOREACH(zpl, &w->z_index, zentry) {
+		wp2 = zpl->pane;
 		if (!window_pane_visible(wp2) ||
 		    (!floating && (wp2->flags & PANE_FLOATING)) ||
 		    (floating && wp2 != wp))
@@ -427,7 +429,8 @@ screen_redraw_check_cell(struct screen_redraw_ctx *ctx, int px, int py,
 {
 	struct client		*c = ctx->c;
 	struct window		*w = c->session->curw->window;
-	struct window_pane	*wp, *start;
+	struct window_pane	*wp;
+	struct panelink		*pl, *startpl;
 	int			 sx = w->sx, sy = w->sy;
 	int			 pane_status = ctx->pane_status;
 	int			 border, pane_scrollbars = ctx->pane_scrollbars;
@@ -441,7 +444,8 @@ screen_redraw_check_cell(struct screen_redraw_ctx *ctx, int px, int py,
 		return (CELL_OUTSIDE);
 
 	/* Find pane higest in z-index at this point. */
-	TAILQ_FOREACH(wp, &w->z_index, zentry) {
+	TAILQ_FOREACH(pl, &w->z_index, zentry) {
+		wp = pl->pane;
 		if (wp->flags & PANE_FLOATING && (px >= sx || py >= sy)) {
 			/* Clip floating panes to window. */
 			continue;
@@ -461,12 +465,15 @@ screen_redraw_check_cell(struct screen_redraw_ctx *ctx, int px, int py,
 				break;
 		}
 	}
-	if (wp != NULL)
-		start = wp;
-	else
-		start = wp = server_client_get_pane(c);
+	if (pl != NULL)
+		wp = pl->pane;
+	else {
+		wp = server_client_get_pane(c);
+		pl = panelink_find_by_pane(&w->panelinks, wp);
+	}
 	if (wp == NULL)
 		return (CELL_OUTSIDE);
+	startpl = pl;
 
 	/* On the window border. */
 	if (px == sx || py == sy)
@@ -552,10 +559,11 @@ screen_redraw_check_cell(struct screen_redraw_ctx *ctx, int px, int py,
 		return (screen_redraw_type_of_cell(ctx, wp, px, py));
 
 	next:
-		wp = TAILQ_NEXT(wp, zentry);
-		if (wp == NULL)
-			wp = TAILQ_FIRST(&w->z_index);
-	} while (wp != start);
+		pl = TAILQ_NEXT(pl, zentry);
+		if (pl == NULL)
+			pl = TAILQ_FIRST(&w->z_index);
+		wp = pl->pane;
+	} while (pl != startpl);
 
 	return (CELL_OUTSIDE);
 }
@@ -1134,6 +1142,7 @@ screen_redraw_get_visible_ranges(struct window_pane *base_wp, u_int px,
 {
 	struct window_pane		*wp;
 	struct window			*w;
+	struct panelink			*zpl;
 	struct visible_range		*ri;
 	static struct visible_ranges	 sr = { NULL, 0, 0 };
 	int				 found_self, sb, sb_w, sb_pos;
@@ -1168,7 +1177,8 @@ screen_redraw_get_visible_ranges(struct window_pane *base_wp, u_int px,
 	sb_pos = options_get_number(w->options, "pane-scrollbars-position");
 
 	found_self = 0;
-	TAILQ_FOREACH_REVERSE(wp, &w->z_index, window_panes_zindex, zentry) {
+	TAILQ_FOREACH_REVERSE(zpl, &w->z_index, panelinks, zentry) {
+		wp = zpl->pane;
 		if (wp == base_wp) {
 			found_self = 1;
 			continue;
