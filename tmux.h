@@ -1250,6 +1250,8 @@ struct window_pane {
 	u_int		 active_point;
 
 	struct window	*window;
+	u_int		 references;
+	TAILQ_HEAD(, panelink) panelinks;
 	struct options	*options;
 
 	struct layout_cell *layout_cell;
@@ -1426,6 +1428,27 @@ struct winlink {
 };
 RB_HEAD(winlinks, winlink);
 TAILQ_HEAD(winlink_stack, winlink);
+
+/* Entry on local pane list. A pane may be linked into more than one window. */
+struct panelink {
+	struct window		*window;
+	struct window_pane	*pane;
+
+	int			 flags;
+#define PANELINK_VISITED 0x1
+#define PANELINK_ZOOMED 0x2
+#define PANELINK_FLOATING 0x4
+
+	/* Per-view layout state (migrated off window_pane). */
+	struct layout_cell	*layout_cell;
+	struct layout_cell	*saved_layout_cell;
+
+	TAILQ_ENTRY(panelink)	 entry;		/* in window->panelinks */
+	TAILQ_ENTRY(panelink)	 sentry;	/* in window->last_panelinks */
+	TAILQ_ENTRY(panelink)	 zentry;	/* in window->z_index_panelinks */
+	TAILQ_ENTRY(panelink)	 wentry;	/* in pane->panelinks (fan-out) */
+};
+TAILQ_HEAD(panelinks, panelink);
 
 /* Window size option. */
 #define WINDOW_SIZE_LARGEST 0
@@ -3397,6 +3420,12 @@ struct winlink	*winlink_previous_by_number(struct winlink *, struct session *,
 		     int);
 void		 winlink_stack_push(struct winlink_stack *, struct winlink *);
 void		 winlink_stack_remove(struct winlink_stack *, struct winlink *);
+struct panelink	*panelink_add(struct panelinks *);
+void		 panelink_set_pane(struct panelink *, struct window_pane *);
+void		 panelink_remove(struct panelinks *, struct panelink *);
+struct panelink	*panelink_find_by_pane(struct panelinks *,
+		     struct window_pane *);
+struct panelink	*panelink_find_by_pane_id(struct panelinks *, u_int);
 struct window	*window_find_by_id_str(const char *);
 struct window	*window_find_by_id(u_int);
 void		 window_update_activity(struct window *);
@@ -3460,6 +3489,8 @@ void		 window_pane_stack_remove(struct window_panes *,
 void		 window_set_name(struct window *, const char *);
 void		 window_add_ref(struct window *, const char *);
 void		 window_remove_ref(struct window *, const char *);
+void		 window_pane_add_ref(struct window_pane *, const char *);
+void		 window_pane_remove_ref(struct window_pane *, const char *);
 void		 winlink_clear_flags(struct winlink *);
 int		 winlink_shuffle_up(struct session *, struct winlink *, int);
 int		 window_pane_start_input(struct window_pane *,

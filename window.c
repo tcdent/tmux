@@ -260,6 +260,67 @@ winlink_stack_remove(struct winlink_stack *stack, struct winlink *wl)
 	}
 }
 
+struct panelink *
+panelink_add(struct panelinks *ppl)
+{
+	struct panelink	*pl;
+
+	pl = xcalloc(1, sizeof *pl);
+	TAILQ_INSERT_TAIL(ppl, pl, entry);
+
+	return (pl);
+}
+
+void
+panelink_set_pane(struct panelink *pl, struct window_pane *wp)
+{
+	if (pl->pane != NULL) {
+		TAILQ_REMOVE(&pl->pane->panelinks, pl, wentry);
+		window_pane_remove_ref(pl->pane, __func__);
+	}
+	TAILQ_INSERT_TAIL(&wp->panelinks, pl, wentry);
+	pl->pane = wp;
+	window_pane_add_ref(wp, __func__);
+}
+
+void
+panelink_remove(struct panelinks *ppl, struct panelink *pl)
+{
+	struct window_pane	*wp = pl->pane;
+
+	if (wp != NULL) {
+		TAILQ_REMOVE(&wp->panelinks, pl, wentry);
+		window_pane_remove_ref(wp, __func__);
+	}
+
+	TAILQ_REMOVE(ppl, pl, entry);
+	free(pl);
+}
+
+struct panelink *
+panelink_find_by_pane(struct panelinks *ppl, struct window_pane *wp)
+{
+	struct panelink	*pl;
+
+	TAILQ_FOREACH(pl, ppl, entry) {
+		if (pl->pane == wp)
+			return (pl);
+	}
+	return (NULL);
+}
+
+struct panelink *
+panelink_find_by_pane_id(struct panelinks *ppl, u_int id)
+{
+	struct panelink	*pl;
+
+	TAILQ_FOREACH(pl, ppl, entry) {
+		if (pl->pane != NULL && pl->pane->id == id)
+			return (pl);
+	}
+	return (NULL);
+}
+
 struct window *
 window_find_by_id_str(const char *s)
 {
@@ -400,6 +461,23 @@ window_remove_ref(struct window *w, const char *from)
 
 	if (w->references == 0)
 		window_destroy(w);
+}
+
+void
+window_pane_add_ref(struct window_pane *wp, const char *from)
+{
+	wp->references++;
+	log_debug("%s: %%%u %s, now %d", __func__, wp->id, from, wp->references);
+}
+
+void
+window_pane_remove_ref(struct window_pane *wp, const char *from)
+{
+	wp->references--;
+	log_debug("%s: %%%u %s, now %d", __func__, wp->id, from, wp->references);
+
+	if (wp->references == 0)
+		window_pane_destroy(wp);
 }
 
 void
@@ -1009,6 +1087,7 @@ window_pane_create(struct window *w, u_int sx, u_int sy, u_int hlimit)
 
 	wp->fd = -1;
 
+	TAILQ_INIT(&wp->panelinks);
 	TAILQ_INIT(&wp->modes);
 
 	TAILQ_INIT (&wp->resize_queue);
