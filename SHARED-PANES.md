@@ -1,0 +1,462 @@
+# tmux shared panes — design, rooted in the current tree
+
+A patch series to let a single pane be referenced from multiple windows (and
+therefore multiple sessions), modeled after the existing `winlink` pattern that
+lets a single window be referenced from multiple sessions.
+
+Goal: daily use for the author, and an upstream-quality patch series at the end.
+
+> **Verification convention.** Every claim about tmux internals carries a
+> `file:line` against **this** tree (tmux master at tag `3.6b`, *including the
+> floating-panes work* — commits `ce24b92`, `572e26d`). A section marked
+> **Verified ✓** has been read in source. **Unverified ⚠** means it is an
+> inference not yet grounded. This document supersedes an earlier draft whose
+> line numbers predate floating panes and whose data model omits the
+> floating-pane fields entirely.
+
+---
+
+## 0. Why this document exists
+
+An earlier audit produced a detailed plan, but it was written against a tree
+*before floating panes landed*. Re-verifying every claim against the current
+source turned up three structural additions the old plan never saw, and one
+design problem it never confronted:
+
+1. **`zentry` + `w->z_index`** — a fourth intrusive per-pane list link and a
+   third per-window list, holding floating-pane stacking order.
+2. **`PANE_FLOATING`** — a per-view layout property, swapped by `swap-pane`.
+3. **`tree_entry` + global `all_window_panes`** — a global id-keyed RB tree of
+   panes.
+4. **The geometry/size problem** — a pane's size is dictated by its container
+   window's layout, but a pane owns exactly one screen grid and one PTY. A
+   winlink shares a whole *window* (self-consistent geometry); a panelink would
+   share a *sub-component* whose size two windows can disagree on. This is the
+   central challenge, analysed in §3.
+
+Everything below is re-grounded.
+
+---
+
+## 1. The precedent: winlink
+
+**Verified ✓** — `tmux.h:1411-1428`, `window.c:166-255`, `session.c:324-372`,
+`server-fn.c:248-311`.
+
+A `winlink` is a join object — `{idx, session, window, flags}` plus three
+intrusive links: an RB entry on `session->windows` keyed by `idx`
+(`tmux.h:1423`), a TAILQ `wentry` on `window->winlinks` so a window knows which
+sessions view it (`tmux.h:1424`, `window` carries `references` + `winlinks` at
+`tmux.h:1403-1404`), and a TAILQ `sentry` on the session visit stack
+(`tmux.h:1425`). No back-pointer to a "primary" session — windows are genuinely
+shared.
+
+The three-tier helper layering this series mirrors:
+
+- **Tier 1 (data ops), `window.c`:** `winlink_add` @166, `winlink_set_window`
+  @184 (bumps `w->references`), `winlink_remove` @196 (drops the ref;
+  `window_remove_ref` @396 destroys at zero), plus `winlink_find_by_*` /
+  `_next` / `_previous`. **Verified ✓.**
+- **Tier 2 (session wrappers), `session.c`:** `session_attach` @324 fires
+  `window-linked` @334; `session_detach` @342 fires `window-unlinked` @350;
+  `session_has` @363 tests membership. **Verified ✓.**
+- **Tier 3 (server wrappers), `server-fn.c`:** `server_link_window` @248
+  (collision/`-k` handling), `server_unlink_window` @305. **Verified ✓.**
+
+This template is **untouched by floating panes** — good news, since the whole
+series mirrors it.
+
+---
+
+## 2. Ground truth: what a `window_pane` is *today*
+
+**Verified ✓** — `struct window_pane` at `tmux.h:1248-1343`.
+
+A pane is a single PTY + child process + one screen grid, plus a pile of state.
+The sharing design hinges on classifying every field as **per-pane** (shared
+content/process — stays on `window_pane`) or **per-view** (an attribute of one
+window's view of the pane — moves to the `panelink`).
+
+### Per-pane (stays on `window_pane`)
+
+The PTY/process and content: `id`, `active_point`, `argc/argv/shell/cwd`,
+`pid/tty/status/dead_time`, `fd/event`, `offset/base_offset`, `resize_queue`,
+timers, `ictx` (input parser), `screen/base` (**the grid**), `status_screen`,
+`modes` (copy-mode etc.), `searchstr/searchregex`, `palette`, `cached_gc`,
+pipe state, `control_bg/fg`, `scrollbar_style`. Content-/process-level flags:
+`PANE_REDRAW`, `PANE_DROP`, `PANE_FOCUSED`, `PANE_INPUTOFF`, `PANE_CHANGED`,
+`PANE_EXITED`, `PANE_EMPTY`, `PANE_STATUS*`, `PANE_STYLECHANGED`,
+`PANE_THEMECHANGED`, `PANE_UNSEENCHANGES`.
+
+Plus the **global** id-keyed RB membership:
+`RB_ENTRY(window_pane) tree_entry` (`tmux.h:1342`) on `all_window_panes`
+(`window.c:59,78`; `RB_INSERT` in `window_pane_create` @`window.c:1008`,
+`RB_REMOVE` in `window_pane_destroy` @`window.c:1081`). **Verified ✓.** This is
+keyed by pane id via `window_pane_cmp`, is global not per-window, and therefore
+survives sharing unchanged — it stays on the pane and is dropped exactly once,
+at true destroy (refcount zero).
+
+### Per-view (moves to `panelink`)
+
+| Field / flag | Today on `window_pane` | Per-window list it links | Source |
+|---|---|---|---|
+| `struct window *window` | `tmux.h:1252` | — (the back-pointer itself) | ✓ |
+| `layout_cell`, `saved_layout_cell` | `tmux.h:1255-1256` | — (per-view layout) | ✓ |
+| `TAILQ_ENTRY entry` | `tmux.h:1339` | `w->panes` (positional order) | ✓ |
+| `TAILQ_ENTRY sentry` | `tmux.h:1340` | `w->last_panes` (visit stack) | ✓ |
+| `TAILQ_ENTRY zentry` | `tmux.h:1341` | `w->z_index` (floating z-order) | ✓ **new** |
+| `PANE_VISITED` (`0x8`) | `tmux.h:1268` | tracks `last_panes` membership | ✓ |
+| `PANE_FLOATING` (`0x20`) | `tmux.h:1270` | tracks `z_index` / floating layout | ✓ **new** |
+| geometry `xoff/yoff/sx/sy` | `tmux.h:1258-1262` | derived from `layout_cell` — see §3 | ✓ |
+
+`PANE_VISITED` is set/cleared in lockstep with `sentry` by
+`window_pane_stack_push`/`_remove` (`window.c:1682-1699`). **Verified ✓.**
+
+`PANE_FLOATING` is per-view because floating-ness is a layout attribute:
+`swap-pane` swaps it between two panes (`cmd-swap-pane.c:107-110`) and refuses
+to swap two floaters (`cmd-swap-pane.c:82-86`). **Verified ✓.** A shared pane
+could float in window A and tile in window B.
+
+**`PANE_ZOOMED` (`0x10`) is an open question** — zoom is conceptually
+per-window-view (the window also carries `WINDOW_ZOOMED`, `tmux.h:1393`). Listed
+in §8 ambiguities, **Unverified ⚠** which side it lands on.
+
+### Transient render scratch (recomputed, no migration needed)
+
+`struct visible_ranges r` (`tmux.h:1337`) — the non-occluded spans of a pane,
+rebuilt every redraw (`screen-redraw.c:1159-1160`, consumed via
+`tty_check_overlay_range`). `sb_slider_y/h` scrollbar slider geometry. These are
+recomputed per render; in a shared world they are recomputed per (pane, view)
+during that view's redraw and need no persistent home. **Verified ✓** for `r`'s
+recompute-per-redraw nature.
+
+### The three per-window pane lists
+
+**Verified ✓** — `struct window` at `tmux.h:1349-1407`:
+
+```c
+struct window_pane  *active;       /* per-window: fine as-is */
+struct window_panes  last_panes;   /* visit stack, via sentry */
+struct window_panes  z_index;      /* floating z-order, via zentry  <- new */
+struct window_panes  panes;        /* positional order, via entry */
+```
+
+All three become lists of `panelink`. `active` stays a pointer (it is already
+per-window). **Note:** pane order is *positional*, not RB-keyed —
+`window_pane_at_index` (`window.c:840-852`) walks `&w->panes` counting from
+`pane-base-index`. So panelinks are **TAILQ, not RB** (an earlier draft got this
+wrong). This preserves `select-pane -t 3` semantics. No `idx` field on the
+panelink.
+
+---
+
+## 3. The central challenge: a pane has one grid, windows disagree on size
+
+**Verified ✓** — `layout_fix_panes` at `layout.c:358-405`.
+
+A pane's geometry is **derived from its layout cell**, then pushed into the one
+grid:
+
+```c
+TAILQ_FOREACH(wp, &w->panes, entry) {
+    if ((lc = wp->layout_cell) == NULL || wp == skip) continue;
+    wp->xoff = lc->xoff;
+    wp->yoff = lc->yoff;
+    ...
+    window_pane_resize(wp, sx, sy);   /* resizes wp->base, the grid */
+}
+```
+
+`window_pane_resize` resizes `wp->base` (the single screen grid) and the PTY is
+told via `TIOCSWINSZ`. There is **one** grid and **one** child process per pane.
+
+This is where pane-sharing diverges from window-sharing:
+
+- A **winlink** shares a whole *window*. A window owns one size; multiple
+  clients/sessions viewing it negotiate that one size through the
+  `window-size` option (`WINDOW_SIZE_LARGEST/SMALLEST/MANUAL/LATEST`,
+  `tmux.h:1431-1434`). Internal pane sizes are therefore globally consistent —
+  no conflict.
+- A **panelink** would share a *sub-component*. Windows `W1` and `W2` can have
+  different sizes and different layouts, so the pane's cell is e.g. 80×24 in
+  `W1` and 40×10 in `W2`. But the pane has one grid and one process. **The
+  conflict is fundamental, not incidental.**
+
+This is the same class of problem tmux already solved one level up, for windows.
+The honest design is to introduce the analogous negotiation one level down:
+
+> **The pane grid size is a function over its panelinks' cell sizes**
+> (largest / smallest / manual / latest), and a view whose cell differs from the
+> grid is **clipped or padded by the renderer**.
+
+And here floating panes *help*: the occlusion machinery they added —
+`struct visible_ranges` + `tty_check_overlay_range` (`tty.c:1456`,
+`tty-draw.c:85`) — is exactly the primitive needed to paint a sub-rectangle of a
+pane's grid into a view whose cell is smaller than the grid. So floating panes
+both **complicate** sharing (more per-view state) and **enable** it (a clipping
+primitive that did not exist when the original audit was written).
+
+**Decision (proposed, Unverified ⚠ until prototyped):** add a `pane-size`
+option mirroring `window-size`; default `latest` (resize the grid to the view
+being interacted with — matches today's single-view behaviour exactly when the
+panelink count is 1). Larger views pad; the negotiation degenerates to a no-op
+in the single-link case, preserving Steps 1–5's "zero behaviour change"
+guarantee. This is the load-bearing open question; it is *not* required to land
+Steps 1–5, only Step 6.
+
+---
+
+## 4. The data model
+
+A `panelink` joins a pane to a window the same way a winlink joins a window to a
+session.
+
+```c
+struct panelink {
+    struct window        *window;
+    struct window_pane   *pane;
+    int                   flags;        /* PANELINK_VISITED, PANELINK_FLOATING */
+
+    /* per-view layout state, migrated off window_pane */
+    struct layout_cell   *layout_cell;
+    struct layout_cell   *saved_layout_cell;
+
+    TAILQ_ENTRY(panelink) entry;    /* on window->panelinks  (positional)  */
+    TAILQ_ENTRY(panelink) sentry;   /* on window->last_panelinks (visit)    */
+    TAILQ_ENTRY(panelink) zentry;   /* on window->z_index_panelinks (float) */
+    TAILQ_ENTRY(panelink) wentry;   /* on pane->panelinks (fan-out)         */
+};
+TAILQ_HEAD(panelinks, panelink);
+```
+
+Changes to `struct window_pane` (`tmux.h:1248`):
+- **Remove** `struct window *window` → `TAILQ_HEAD(, panelink) panelinks`
+  (the fan-out: which windows view this pane) + `u_int references`.
+- **Remove** `layout_cell`, `saved_layout_cell` → migrate to `panelink`.
+- **Remove** `entry`, `sentry`, **and `zentry`** → migrate to `panelink`.
+- **Remove** flags `PANE_VISITED` and `PANE_FLOATING` → become `panelink`
+  flags.
+- **Keep** `tree_entry` (global id RB), the grid, PTY, and all per-pane state.
+- Geometry `xoff/yoff/sx/sy` and the grid: see §3 — these stay on the pane for
+  now; the panelink's `layout_cell` is the per-view source of truth and the
+  grid size is negotiated.
+
+Changes to `struct window` (`tmux.h:1349`):
+- `panes` → `panelinks`, `last_panes` → `last_panelinks`,
+  `z_index` → `z_index_panelinks` (all TAILQ of `panelink`).
+- `active` stays a `window_pane *`.
+
+Changes to `struct layout_cell` (`tmux.h:1470`):
+- `struct window_pane *wp` → `struct panelink *pl`. `lc->pl->pane` reaches the
+  shared state, `lc->pl->window` reaches the container. (`LAYOUT_FLOATING`
+  cells, `tmux.h:1462`, are unaffected structurally — they hold child cells the
+  same way.)
+
+---
+
+## 5. Helper layering (mirrors winlink)
+
+**Tier 1 — `window.c` data ops** (copy-rename of `winlink_*`):
+`panelink_add`, `panelink_set_pane` (bumps `wp->references`), `panelink_remove`
+(drops it; `window_pane_remove_ref` destroys at zero), `panelink_find_by_pane`,
+`panelink_find_by_pane_id`, `panelink_next`, `panelink_previous`,
+`window_pane_add_ref` / `window_pane_remove_ref` (mirror `window_add_ref` /
+`window_remove_ref` @`window.c:389-402`, with `__func__` log_debug).
+
+**Tier 2 — `window.c` wrappers:** `window_attach_pane` / `window_detach_pane`
+replacing `window_add_pane` (@771) / `window_remove_pane` (@831) /
+`window_lost_pane` (@806). Fire `pane-linked` / `pane-unlinked` notifications
+mirroring `window-linked` / `window-unlinked` (`session.c:334,350`).
+
+**Tier 3 — `server-fn.c`:** `server_link_pane` / `server_unlink_pane` mirroring
+`server_link_window` / `server_unlink_window` (@248/305). Collision + `-k`,
+marked-pane fixup (`marked_pane` is a `cmd_find_state` at `server.c:51`, set
+`s/wl/w/wp` at `server.c:70-75` — no struct change, just re-point `wl/w` on
+relink), redraw trigger.
+
+---
+
+## 6. Commands
+
+**Verified ✓** — `cmd-move-window.c` shares one `exec` between
+`cmd_move_window_entry` and `cmd_link_window_entry`, dispatched by
+`cmd_get_entry`. `cmd-join-pane.c` already moves a pane between windows (it just
+always destroys the source link).
+
+- `link-pane -s src -t dst-window[.idx] [-f]` — add a panelink in `dst` pointing
+  at `src`'s pane. Refuse same-window by default (mirror `cmd-join-pane.c:92`
+  `src_wp == dst_wp` check); `-f` allows multiple cells in one window viewing
+  one pane.
+- `unlink-pane -t target [-k]` — remove this view. Refuse to remove the last
+  reference unless `-k` (then destroy). Mirrors `unlink-window`.
+- `kill-pane` — **unchanged semantics**: destroy the pane completely, now via
+  refcount cascade across all panelinks. `-a` is taken (kill *other* panes,
+  `cmd-kill-pane.c:52`), so it is **not** repurposed.
+- `break-pane` — generalizes: today it removes from `w->panes`/`w->z_index` and
+  attaches to a new window (`cmd-break-pane.c:98-108`); becomes "remove this
+  panelink, create a new window with a new panelink." Other views survive.
+- `swap-pane` — swaps **panelinks** not panes: positions in the three TAILQs,
+  `layout_cell` pointers, and the `PANELINK_FLOATING` flag (today it pointer-
+  swaps `wp->window`, `layout_cell`, and `PANE_FLOATING` at
+  `cmd-swap-pane.c:91-117`). The float-vs-float guard (`82-86`) is preserved.
+  Cleaner than today: panes do not move, only their views' slots.
+
+---
+
+## 7. The `wp->window` audit (recounted on this tree)
+
+**Verified ✓** by grep on the current tree:
+
+| Metric | This tree |
+|---|---|
+| `wp->window` readers | **144**, across **24** files |
+| `TAILQ_FOREACH(&w->panes)` iterations | **43** (73 total `&w->panes` refs incl. mutators) |
+| `wp->layout_cell` / `saved_layout_cell` | **38** |
+| `&w->z_index` / `zentry` sites | **~20** (new — `window.c`, `screen-redraw.c`, `layout.c`, `layout-custom.c`, `cmd-{break,join}-pane.c`) |
+
+Per-file `wp->window` distribution: `window.c` 26, `window-copy.c` 17,
+`layout.c` 15, `input.c` 14, `cmd-select-pane.c` 14, `screen-write.c` 8,
+`screen-redraw.c` 6, `format.c` 6, `cmd-find.c` 6, others ≤4.
+
+### Buckets
+
+- **(a) Pure substitution** — caller already has a `cmd_find_state` / `winlink`
+  / `window` and used `wp->window` as a shortcut. *Verified examples:*
+  `cmd-select-pane.c:207` `server_redraw_window_borders(wp->window)` →
+  `target.w`; `screen-write.c:112` already does `w = wp->window;`.
+- **(b/c1) Fan-out on PTY events** — output→activity, BEL→bell, focus. Replace
+  the pointer with a walk over `wp->panelinks`. The mechanism exists:
+  `window_pane_update_focus` (`window.c:488`) already walks `&clients` and
+  compares `c->session->curw->window == wp->window`; that compare becomes
+  "client views this pane through any panelink." *Verified example:*
+  `input.c` `window_update_activity(wp->window)` →
+  `TAILQ_FOREACH(pl, &wp->panelinks, wentry) window_update_activity(pl->window);`
+- **(c2) Per-view question masquerading as per-pane** — the call site has view
+  context it was not using. *Verified:* `format_tree` carries independent
+  `{c,s,wl,w,wp}`; `cmd_find_state` the same shape (`server.c:51`).
+
+  | Site | Today | After |
+  |---|---|---|
+  | `format.c:2027` | `ft->wp == ft->wp->window->active` | `ft->w != NULL && ft->wp == ft->w->active` |
+  | `window-copy.c:458` (+~9 siblings) | `wp->window->options` | `w->options` from caller |
+  | `layout.c:999,1114` | `wp->window->layout_root` | `pl->window->layout_root` |
+  | `screen-write.c:142` | `c->session->curw->window != wp->window` | `panelink_find_by_pane(&curw->window->panelinks, wp) == NULL` |
+
+- **(d) Signature ripple** — functions that must take an explicit `window`:
+  `window_pane_visible`, the `layout_*` family, `screen_redraw_pane_border`,
+  `screen_write_alternateon`/`off` (`screen-write.c:2476-2501`),
+  `window_copy_*`, `mode_tree_*`, `window_clock_draw_screen`. Plus the special
+  case `screen_write_initctx` (`screen-write.c:217`,
+  `ctx->wp != ctx->wp->window->active`) which runs *before* per-client fan-out
+  and needs a helper `window_pane_is_active_anywhere(wp)` walking panelinks
+  (in the single-link case it equals today's check).
+
+### `cmd_find` resolution
+
+**Verified ✓** — `cmd-find.c`: best-session via `session_has` loop (@186) +
+`cmd_find_session_better` (@134), then `cmd_find_best_winlink_with_window`
+(@209). The pane analog adds one level: collect candidate windows by walking
+`wp->panelinks`, then run the existing logic. New helper
+`cmd_find_best_window_with_pane(fs)` slots in symmetrically. **Three** call
+sites need it: `cmd_find_from_pane` (@807), `notify_add` (@179; replace
+`wp->window->id`/`name` at `notify.c:213,215` with `ne->fs.w->...`), and
+`format_defaults_pane` (@`format.c:5923-5928`, which backfills `ft->w` via
+`format_defaults_window(ft, wp->window)`).
+
+---
+
+## 8. Ambiguities and decisions
+
+Carrying forward the verified ones and adding the floating-pane and geometry
+ones surfaced by this pass.
+
+1. **kill-pane vs unlink-pane** — `kill-pane` = destroy (refcount cascade),
+   `unlink-pane` = per-view remove. **Verified ✓** (`cmd-kill-pane.c:52` shows
+   `-a` is taken).
+2. **`cmd_find` of a pane in multiple windows** — `cmd_find_best_window_with_pane`
+   then existing best-session/winlink. **Verified ✓** (§7).
+3. **Hooks** — signature unchanged; non-interactive triggers build state via
+   `cmd_find_from_pane`. Three internal sites get the helper from #2.
+   **Verified ✓**.
+4. **`pane_index` / `list-panes -a`** — resolve via `ft->w`; iterate
+   sessions→winlinks→panelinks (iterate join objects, not shared objects).
+   **Verified ✓** (`cmd-list-panes.c` walks `RB_FOREACH(wl, ...)` then expands).
+5. **Window-scoped options for a shared pane** — `wp->options->parent` can only
+   point to one window (`window_pane_create` @`window.c:1004`,
+   `options_set_parent` on move @`cmd-join-pane.c:152`). Decision: **bypass the
+   parent chain** for window-scoped lookups — use `w->options` from caller
+   context (e.g. the ~10 `wp->window->options` mode-keys/wrap lookups in
+   `window-copy.c`). Needs a sub-audit of which keys are window- vs pane-scoped.
+   **Verified ✓** the chain re-points on move.
+6. **Copy-mode state** — shared, on the pane (`wp->modes`). **Verified ✓.**
+7. **respawn-pane** — affects all views (one process). **Verified ✓.**
+8. **`PANE_ZOOMED` per-view or per-pane?** — zoom is conceptually per-window
+   (`WINDOW_ZOOMED` exists at `tmux.h:1393`). Likely per-view → panelink flag.
+   **Unverified ⚠** — needs reading the zoom paths before deciding.
+9. **Geometry / pane size** — the §3 problem. Proposed `pane-size` option,
+   default `latest`. **Unverified ⚠** — the load-bearing prototype question.
+10. **Floating-ness per-view** — `PANE_FLOATING` → `PANELINK_FLOATING`. A pane
+    may float in one window, tile in another. **Verified ✓** that the flag is
+    swapped/toggled per layout (`cmd-swap-pane.c:107-110`).
+11. **Marked pane** — no struct change (`server.c:51`). **Verified ✓.**
+12. **Control mode** — add `%pane-linked @W %P` / `%pane-unlinked @W %P`.
+    Backward-compat with clients that drop unknown `%`-notifications.
+    **Unverified ⚠** against the *current* iTerm2 tree (the old audit verified
+    an older copy; re-confirm before upstream, not a blocker for local use).
+13. **Detach-pane** — not added; refcount zero = destroy.
+14. **Open by design** — new ambiguities found by daily driving get appended
+    here with a status.
+
+---
+
+## 9. Patch series order
+
+Steps 1–5 are invisible refactors: the panelink count is always exactly 1, so
+the new code paths run but degenerate to today's behaviour. Step 6 turns the
+feature on. Each step is individually defensible as "modernize this to match the
+winlink pattern."
+
+1. **Foundation** — `struct panelink`, `references` + `panelinks` on
+   `window_pane`, `TAILQ_INIT(&wp->panelinks)` in `window_pane_create`
+   (@`window.c:997`), tier-1 `panelink_*` + `window_pane_{add,remove}_ref`.
+   Dead code until Step 2.
+2. **Wire in lockstep** — in `window_add_pane` (@771) and the four mutators
+   (`window_pane_create`, `cmd-break-pane.c:104`, `cmd-join-pane.c:151`,
+   `cmd-swap-pane.c:112/115`), mirror every `wp->window =` **and every
+   `entry`/`sentry`/`zentry` TAILQ op** with a panelink op. Invariant:
+   `TAILQ_FIRST(&wp->panelinks)->window == wp->window`, count == 1.
+   *(Larger than the old plan said — the lockstep now spans three lists.)*
+3. **Field migration (the big mechanical diff)** — move `entry`, `sentry`,
+   **`zentry`**, `layout_cell`, `saved_layout_cell` to `panelink`;
+   `PANE_VISITED`→`PANELINK_VISITED`, `PANE_FLOATING`→`PANELINK_FLOATING`;
+   `w->panes/last_panes/z_index` → panelink lists; migrate the 43 iterations,
+   38 `layout_cell` refs, ~20 `z_index` sites, and
+   `window_pane_stack_push`/`_remove`; rewrite `swap-pane` as a panelink swap.
+4. **Bucket (a) substitutions + the `cmd_find_best_window_with_pane` helper**
+   (3 sites). `wp->window` still exists.
+5. **Buckets (c)/(d): fan-out loops + signature changes**, the
+   `window_pane_is_active_anywhere` helper, the options sub-audit (#5), then
+   **drop `wp->window`** and route destroy through `window_pane_remove_ref`.
+6. **Commands + size negotiation** — `link-pane`/`unlink-pane`,
+   `server_link_pane`/`server_unlink_pane`, `kill-pane` refcount cascade, the
+   `pane-size` option (§3). **First behaviour change.** Daily-drive, append
+   findings to §8.
+7. **Polish** — control-mode notifications, new formats
+   (`#{pane_link_count}`, `#{pane_linked}`), man pages.
+8. **Upstream prep** — rebase to ~8 commits, mail tmux-users@, coordinate the
+   iTerm2 UX question separately.
+
+---
+
+## 10. What is verified vs what needs a prototype
+
+**Verified against this tree:** the winlink template (§1), the per-pane/per-view
+field classification (§2), the geometry-derivation mechanism (§3), the audit
+counts and buckets (§7), and ambiguities 1–7, 10, 11.
+
+**Needs prototyping / re-grounding:** the `pane-size` negotiation (§3 / amb. 9 —
+the one genuinely hard design problem), `PANE_ZOOMED`'s side (amb. 8), the
+window-scoped options sub-audit (amb. 5), and the current-tree iTerm2
+control-mode check (amb. 12).
+
+Steps 1–3 are safe to start now; nothing in them depends on the open questions.
