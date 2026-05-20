@@ -146,22 +146,20 @@ cmd_join_pane_exec(struct cmd *self, struct cmdq_item *item)
 
 	server_client_remove_pane(src_wp);
 	window_lost_pane(src_w, src_wp);
-	src_pl = panelink_find_by_pane(&src_w->panelinks, src_wp);
-	dst_pl = panelink_find_by_pane(&dst_w->panelinks, dst_wp);
-	TAILQ_REMOVE(&src_w->panes, src_wp, entry);
+	src_pl = panelink_find_by_pane(&src_w->panes, src_wp);
+	dst_pl = panelink_find_by_pane(&dst_w->panes, dst_wp);
+	TAILQ_REMOVE(&src_w->panes, src_pl, entry);
 	TAILQ_REMOVE(&src_w->z_index, src_pl, zentry);
-	TAILQ_REMOVE(&src_w->panelinks, src_pl, entry);
 
 	src_wp->window = dst_w;
-	TAILQ_INSERT_TAIL(&dst_w->panelinks, src_pl, entry);
 	src_pl->window = dst_w;
 	options_set_parent(src_wp->options, dst_w->options);
 	src_wp->flags |= (PANE_STYLECHANGED|PANE_THEMECHANGED);
 	if (flags & SPAWN_BEFORE) {
-		TAILQ_INSERT_BEFORE(dst_wp, src_wp, entry);
+		TAILQ_INSERT_BEFORE(dst_pl, src_pl, entry);
 		TAILQ_INSERT_BEFORE(dst_pl, src_pl, zentry);
 	} else {
-		TAILQ_INSERT_AFTER(&dst_w->panes, dst_wp, src_wp, entry);
+		TAILQ_INSERT_AFTER(&dst_w->panes, dst_pl, src_pl, entry);
 		TAILQ_INSERT_AFTER(&dst_w->z_index, dst_pl, src_pl, zentry);
 	}
 	layout_assign_pane(lc, src_wp, 0);

@@ -50,7 +50,7 @@ cmd_swap_pane_exec(struct cmd *self, struct cmdq_item *item)
 	struct cmd_find_state	*target = cmdq_get_target(item);
 	struct window		*src_w, *dst_w;
 	struct window_pane	*tmp_wp, *src_wp, *dst_wp;
-	struct panelink		*src_pl, *dst_pl;
+	struct panelink		*src_pl, *dst_pl, *tmp_pl;
 	struct layout_cell	*src_lc, *dst_lc;
 	u_int			 sx, sy, xoff, yoff;
 
@@ -64,14 +64,19 @@ cmd_swap_pane_exec(struct cmd *self, struct cmdq_item *item)
 
 	if (args_has(args, 'D')) {
 		src_w = dst_w;
-		src_wp = TAILQ_NEXT(dst_wp, entry);
-		if (src_wp == NULL)
-			src_wp = TAILQ_FIRST(&dst_w->panes);
+		tmp_pl = panelink_find_by_pane(&dst_w->panes, dst_wp);
+		tmp_pl = (tmp_pl != NULL) ? TAILQ_NEXT(tmp_pl, entry) : NULL;
+		if (tmp_pl == NULL)
+			tmp_pl = TAILQ_FIRST(&dst_w->panes);
+		src_wp = (tmp_pl != NULL) ? tmp_pl->pane : NULL;
 	} else if (args_has(args, 'U')) {
 		src_w = dst_w;
-		src_wp = TAILQ_PREV(dst_wp, window_panes, entry);
-		if (src_wp == NULL)
-			src_wp = TAILQ_LAST(&dst_w->panes, window_panes);
+		tmp_pl = panelink_find_by_pane(&dst_w->panes, dst_wp);
+		tmp_pl = (tmp_pl != NULL) ?
+		    TAILQ_PREV(tmp_pl, panelinks, entry) : NULL;
+		if (tmp_pl == NULL)
+			tmp_pl = TAILQ_LAST(&dst_w->panes, panelinks);
+		src_wp = (tmp_pl != NULL) ? tmp_pl->pane : NULL;
 	}
 
 	if (src_w != dst_w && window_push_zoom(src_w, 0, args_has(args, 'Z')))
@@ -89,15 +94,18 @@ cmd_swap_pane_exec(struct cmd *self, struct cmdq_item *item)
 	server_client_remove_pane(src_wp);
 	server_client_remove_pane(dst_wp);
 
-	tmp_wp = TAILQ_PREV(dst_wp, window_panes, entry);
-	TAILQ_REMOVE(&dst_w->panes, dst_wp, entry);
-	TAILQ_REPLACE(&src_w->panes, src_wp, dst_wp, entry);
-	if (tmp_wp == src_wp)
-		tmp_wp = dst_wp;
-	if (tmp_wp == NULL)
-		TAILQ_INSERT_HEAD(&dst_w->panes, src_wp, entry);
+	src_pl = panelink_find_by_pane(&src_w->panes, src_wp);
+	dst_pl = panelink_find_by_pane(&dst_w->panes, dst_wp);
+
+	tmp_pl = TAILQ_PREV(dst_pl, panelinks, entry);
+	TAILQ_REMOVE(&dst_w->panes, dst_pl, entry);
+	TAILQ_REPLACE(&src_w->panes, src_pl, dst_pl, entry);
+	if (tmp_pl == src_pl)
+		tmp_pl = dst_pl;
+	if (tmp_pl == NULL)
+		TAILQ_INSERT_HEAD(&dst_w->panes, src_pl, entry);
 	else
-		TAILQ_INSERT_AFTER(&dst_w->panes, tmp_wp, src_wp, entry);
+		TAILQ_INSERT_AFTER(&dst_w->panes, tmp_pl, src_pl, entry);
 
 	src_lc = src_wp->layout_cell;
 	dst_lc = dst_wp->layout_cell;
@@ -110,12 +118,6 @@ cmd_swap_pane_exec(struct cmd *self, struct cmdq_item *item)
 		dst_wp->flags ^= PANE_FLOATING;
 	}
 
-	src_pl = panelink_find_by_pane(&src_w->panelinks, src_wp);
-	dst_pl = panelink_find_by_pane(&dst_w->panelinks, dst_wp);
-	TAILQ_REMOVE(&src_w->panelinks, src_pl, entry);
-	TAILQ_REMOVE(&dst_w->panelinks, dst_pl, entry);
-	TAILQ_INSERT_TAIL(&dst_w->panelinks, src_pl, entry);
-	TAILQ_INSERT_TAIL(&src_w->panelinks, dst_pl, entry);
 	src_pl->window = dst_w;
 	dst_pl->window = src_w;
 

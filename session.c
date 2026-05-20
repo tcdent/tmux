@@ -751,12 +751,15 @@ void
 session_theme_changed(struct session *s)
 {
 	struct window_pane	*wp;
+	struct panelink		*pl;
 	struct winlink		*wl;
 
 	if (s != NULL) {
 		RB_FOREACH(wl, winlinks, &s->windows) {
-			TAILQ_FOREACH(wp, &wl->window->panes, entry)
-			    wp->flags |= PANE_THEMECHANGED;
+			TAILQ_FOREACH(pl, &wl->window->panes, entry) {
+				wp = pl->pane;
+				wp->flags |= PANE_THEMECHANGED;
+			}
 		}
 	}
 }
@@ -767,12 +770,14 @@ session_update_history(struct session *s)
 {
 	struct winlink		*wl;
 	struct window_pane	*wp;
+	struct panelink		*pl;
 	struct grid		*gd;
 	u_int			 limit, osize;
 
 	limit = options_get_number(s->options, "history-limit");
 	RB_FOREACH(wl, winlinks, &s->windows) {
-		TAILQ_FOREACH(wp, &wl->window->panes, entry) {
+		TAILQ_FOREACH(pl, &wl->window->panes, entry) {
+			wp = pl->pane;
 			gd = wp->base.grid;
 
 			osize = gd->hsize;

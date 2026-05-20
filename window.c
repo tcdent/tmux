@@ -369,7 +369,6 @@ window_create(u_int sx, u_int sy, u_int xpixel, u_int ypixel)
 	TAILQ_INIT(&w->panes);
 	TAILQ_INIT(&w->z_index);
 	TAILQ_INIT(&w->last_panelinks);
-	TAILQ_INIT(&w->panelinks);
 	w->active = NULL;
 
 	w->lastlayout = -1;
@@ -545,10 +544,10 @@ window_pane_send_resize(struct window_pane *wp, u_int sx, u_int sy)
 int
 window_has_pane(struct window *w, struct window_pane *wp)
 {
-	struct window_pane	*wp1;
+	struct panelink		*pl;
 
-	TAILQ_FOREACH(wp1, &w->panes, entry) {
-		if (wp1 == wp)
+	TAILQ_FOREACH(pl, &w->panes, entry) {
+		if (pl->pane == wp)
 			return (1);
 	}
 	return (0);
@@ -678,7 +677,7 @@ window_redraw_active_switch(struct window *w, struct window_pane *wp)
 
 		/* If the pane is floating, move to the front. */
 		if (wp->flags & PANE_FLOATING) {
-			pl = panelink_find_by_pane(&w->panelinks, wp);
+			pl = panelink_find_by_pane(&w->panes, wp);
 			TAILQ_REMOVE(&w->z_index, pl, zentry);
 			TAILQ_INSERT_HEAD(&w->z_index, pl, zentry);
 			wp->flags |= PANE_REDRAW;
@@ -779,6 +778,7 @@ window_zoom(struct window_pane *wp)
 {
 	struct window		*w = wp->window;
 	struct window_pane	*wp1;
+	struct panelink		*pl;
 
 	if (w->flags & WINDOW_ZOOMED)
 		return (-1);
@@ -789,7 +789,8 @@ window_zoom(struct window_pane *wp)
 		window_set_active_pane(w, wp, 1);
 	wp->flags |= PANE_ZOOMED;
 
-	TAILQ_FOREACH(wp1, &w->panes, entry) {
+	TAILQ_FOREACH(pl, &w->panes, entry) {
+		wp1 = pl->pane;
 		wp1->saved_layout_cell = wp1->layout_cell;
 		wp1->layout_cell = NULL;
 	}
@@ -806,6 +807,7 @@ int
 window_unzoom(struct window *w, int notify)
 {
 	struct window_pane	*wp;
+	struct panelink		*pl;
 
 	if (!(w->flags & WINDOW_ZOOMED))
 		return (-1);
@@ -815,7 +817,8 @@ window_unzoom(struct window *w, int notify)
 	w->layout_root = w->saved_layout_root;
 	w->saved_layout_root = NULL;
 
-	TAILQ_FOREACH(wp, &w->panes, entry) {
+	TAILQ_FOREACH(pl, &w->panes, entry) {
+		wp = pl->pane;
 		wp->layout_cell = wp->saved_layout_cell;
 		wp->saved_layout_cell = NULL;
 		wp->flags &= ~PANE_ZOOMED;
@@ -862,25 +865,28 @@ window_add_pane(struct window *w, struct window_pane *other, u_int hlimit,
 
 	wp = window_pane_create(w, w->sx, w->sy, hlimit);
 
-	pl = panelink_add(&w->panelinks);
+	pl = panelink_add(&w->panes);
 	pl->window = w;
 	panelink_set_pane(pl, wp);
+	TAILQ_REMOVE(&w->panes, pl, entry);
 
 	if (TAILQ_EMPTY(&w->panes)) {
 		log_debug("%s: @%u at start", __func__, w->id);
-		TAILQ_INSERT_HEAD(&w->panes, wp, entry);
+		TAILQ_INSERT_HEAD(&w->panes, pl, entry);
 	} else if (flags & SPAWN_BEFORE) {
 		log_debug("%s: @%u before %%%u", __func__, w->id, wp->id);
 		if (flags & SPAWN_FULLSIZE)
-			TAILQ_INSERT_HEAD(&w->panes, wp, entry);
+			TAILQ_INSERT_HEAD(&w->panes, pl, entry);
 		else
-			TAILQ_INSERT_BEFORE(other, wp, entry);
+			TAILQ_INSERT_BEFORE(panelink_find_by_pane(&w->panes,
+			    other), pl, entry);
 	} else {
 		log_debug("%s: @%u after %%%u", __func__, w->id, wp->id);
 		if (flags & (SPAWN_FULLSIZE|SPAWN_FLOATING))
-			TAILQ_INSERT_TAIL(&w->panes, wp, entry);
+			TAILQ_INSERT_TAIL(&w->panes, pl, entry);
 		else
-			TAILQ_INSERT_AFTER(&w->panes, other, wp, entry);
+			TAILQ_INSERT_AFTER(&w->panes,
+			    panelink_find_by_pane(&w->panes, other), pl, entry);
 	}
 	if (~flags & SPAWN_FLOATING)
 		TAILQ_INSERT_TAIL(&w->z_index, pl, zentry);
@@ -907,9 +913,15 @@ window_lost_pane(struct window *w, struct window_pane *wp)
 		pl = TAILQ_FIRST(&w->last_panelinks);
 		w->active = (pl != NULL) ? pl->pane : NULL;
 		if (w->active == NULL) {
-			w->active = TAILQ_PREV(wp, window_panes, entry);
-			if (w->active == NULL)
-				w->active = TAILQ_NEXT(wp, entry);
+			pl = panelink_find_by_pane(&w->panes, wp);
+			if (pl != NULL)
+				pl = TAILQ_PREV(pl, panelinks, entry);
+			if (pl == NULL) {
+				pl = panelink_find_by_pane(&w->panes, wp);
+				if (pl != NULL)
+					pl = TAILQ_NEXT(pl, entry);
+			}
+			w->active = (pl != NULL) ? pl->pane : NULL;
 		}
 		if (w->active != NULL) {
 			window_pane_stack_remove(w, w->active);
@@ -926,12 +938,11 @@ window_remove_pane(struct window *w, struct window_pane *wp)
 	struct panelink	*pl;
 
 	window_lost_pane(w, wp);
-	TAILQ_REMOVE(&w->panes, wp, entry);
 
-	pl = panelink_find_by_pane(&w->panelinks, wp);
+	pl = panelink_find_by_pane(&w->panes, wp);
 	if (pl != NULL) {
 		TAILQ_REMOVE(&w->z_index, pl, zentry);
-		panelink_remove(&w->panelinks, pl);
+		panelink_remove(&w->panes, pl);
 	} else
 		window_pane_destroy(wp);
 }
@@ -939,13 +950,13 @@ window_remove_pane(struct window *w, struct window_pane *wp)
 struct window_pane *
 window_pane_at_index(struct window *w, u_int idx)
 {
-	struct window_pane	*wp;
+	struct panelink		*pl;
 	u_int			 n;
 
 	n = options_get_number(w->options, "pane-base-index");
-	TAILQ_FOREACH(wp, &w->panes, entry) {
+	TAILQ_FOREACH(pl, &w->panes, entry) {
 		if (n == idx)
-			return (wp);
+			return (pl->pane);
 		n++;
 	}
 	return (NULL);
@@ -954,35 +965,41 @@ window_pane_at_index(struct window *w, u_int idx)
 struct window_pane *
 window_pane_next_by_number(struct window *w, struct window_pane *wp, u_int n)
 {
+	struct panelink	*pl;
+
+	pl = panelink_find_by_pane(&w->panes, wp);
 	for (; n > 0; n--) {
-		if ((wp = TAILQ_NEXT(wp, entry)) == NULL)
-			wp = TAILQ_FIRST(&w->panes);
+		if (pl == NULL || (pl = TAILQ_NEXT(pl, entry)) == NULL)
+			pl = TAILQ_FIRST(&w->panes);
 	}
 
-	return (wp);
+	return ((pl != NULL) ? pl->pane : NULL);
 }
 
 struct window_pane *
 window_pane_previous_by_number(struct window *w, struct window_pane *wp,
     u_int n)
 {
+	struct panelink	*pl;
+
+	pl = panelink_find_by_pane(&w->panes, wp);
 	for (; n > 0; n--) {
-		if ((wp = TAILQ_PREV(wp, window_panes, entry)) == NULL)
-			wp = TAILQ_LAST(&w->panes, window_panes);
+		if (pl == NULL || (pl = TAILQ_PREV(pl, panelinks, entry)) == NULL)
+			pl = TAILQ_LAST(&w->panes, panelinks);
 	}
 
-	return (wp);
+	return ((pl != NULL) ? pl->pane : NULL);
 }
 
 int
 window_pane_index(struct window_pane *wp, u_int *i)
 {
-	struct window_pane	*wq;
+	struct panelink		*pl;
 	struct window		*w = wp->window;
 
 	*i = options_get_number(w->options, "pane-base-index");
-	TAILQ_FOREACH(wq, &w->panes, entry) {
-		if (wp == wq) {
+	TAILQ_FOREACH(pl, &w->panes, entry) {
+		if (wp == pl->pane) {
 			return (0);
 		}
 		(*i)++;
@@ -994,11 +1011,11 @@ window_pane_index(struct window_pane *wp, u_int *i)
 u_int
 window_count_panes(struct window *w, int with_floating)
 {
-	struct window_pane	*wp;
+	struct panelink		*pl;
 	u_int			 n = 0;
 
-	TAILQ_FOREACH(wp, &w->panes, entry) {
-		if (with_floating || ~wp->flags & PANE_FLOATING)
+	TAILQ_FOREACH(pl, &w->panes, entry) {
+		if (with_floating || ~pl->pane->flags & PANE_FLOATING)
 			n++;
 	}
 	return (n);
@@ -1007,7 +1024,6 @@ window_count_panes(struct window *w, int with_floating)
 void
 window_destroy_panes(struct window *w)
 {
-	struct window_pane	*wp;
 	struct panelink		*pl;
 
 	while (!TAILQ_EMPTY(&w->last_panelinks)) {
@@ -1017,15 +1033,9 @@ window_destroy_panes(struct window *w)
 	}
 
 	while (!TAILQ_EMPTY(&w->panes)) {
-		wp = TAILQ_FIRST(&w->panes);
-		TAILQ_REMOVE(&w->panes, wp, entry);
-
-		pl = panelink_find_by_pane(&w->panelinks, wp);
-		if (pl != NULL) {
-			TAILQ_REMOVE(&w->z_index, pl, zentry);
-			panelink_remove(&w->panelinks, pl);
-		} else
-			window_pane_destroy(wp);
+		pl = TAILQ_FIRST(&w->panes);
+		TAILQ_REMOVE(&w->z_index, pl, zentry);
+		panelink_remove(&w->panes, pl);
 	}
 }
 
@@ -1366,8 +1376,10 @@ static void
 window_pane_copy_paste(struct window_pane *wp, char *buf, size_t len)
 {
 	struct window_pane	*loop;
+	struct panelink		*pl;
 
-	TAILQ_FOREACH(loop, &wp->window->panes, entry) {
+	TAILQ_FOREACH(pl, &wp->window->panes, entry) {
+		loop = pl->pane;
 		if (loop != wp &&
 		    TAILQ_EMPTY(&loop->modes) &&
 		    loop->fd != -1 &&
@@ -1384,8 +1396,10 @@ static void
 window_pane_copy_key(struct window_pane *wp, key_code key)
 {
 	struct window_pane	*loop;
+	struct panelink		*pl;
 
-	TAILQ_FOREACH(loop, &wp->window->panes, entry) {
+	TAILQ_FOREACH(pl, &wp->window->panes, entry) {
+		loop = pl->pane;
 		if (loop != wp &&
 		    TAILQ_EMPTY(&loop->modes) &&
 		    loop->fd != -1 &&
@@ -1566,6 +1580,7 @@ window_pane_find_up(struct window_pane *wp)
 {
 	struct window		*w;
 	struct window_pane	*next, *best, **list;
+	struct panelink		*pl;
 	int			 edge, left, right, end, status, found;
 	int			 xoff, yoff;
 	u_int			 size, sx, sy;
@@ -1595,7 +1610,8 @@ window_pane_find_up(struct window_pane *wp)
 	left = xoff;
 	right = xoff + (int)sx;
 
-	TAILQ_FOREACH(next, &w->panes, entry) {
+	TAILQ_FOREACH(pl, &w->panes, entry) {
+		next = pl->pane;
 		window_pane_full_size_offset(next, &xoff, &yoff, &sx, &sy);
 		if (next == wp)
 			continue;
@@ -1627,6 +1643,7 @@ window_pane_find_down(struct window_pane *wp)
 {
 	struct window		*w;
 	struct window_pane	*next, *best, **list;
+	struct panelink		*pl;
 	int			 edge, left, right, end, status, found;
 	int			 xoff, yoff;
 	u_int			 size, sx, sy;
@@ -1656,7 +1673,8 @@ window_pane_find_down(struct window_pane *wp)
 	left = wp->xoff;
 	right = wp->xoff + (int)wp->sx;
 
-	TAILQ_FOREACH(next, &w->panes, entry) {
+	TAILQ_FOREACH(pl, &w->panes, entry) {
+		next = pl->pane;
 		window_pane_full_size_offset(next, &xoff, &yoff, &sx, &sy);
 		if (next == wp)
 			continue;
@@ -1688,6 +1706,7 @@ window_pane_find_left(struct window_pane *wp)
 {
 	struct window		*w;
 	struct window_pane	*next, *best, **list;
+	struct panelink		*pl;
 	int			 edge, top, bottom, end, found;
 	int			 xoff, yoff;
 	u_int			 size, sx, sy;
@@ -1708,7 +1727,8 @@ window_pane_find_left(struct window_pane *wp)
 	top = yoff;
 	bottom = yoff + (int)sy;
 
-	TAILQ_FOREACH(next, &w->panes, entry) {
+	TAILQ_FOREACH(pl, &w->panes, entry) {
+		next = pl->pane;
 		window_pane_full_size_offset(next, &xoff, &yoff, &sx, &sy);
 		if (next == wp)
 			continue;
@@ -1740,6 +1760,7 @@ window_pane_find_right(struct window_pane *wp)
 {
 	struct window		*w;
 	struct window_pane	*next, *best, **list;
+	struct panelink		*pl;
 	int			 edge, top, bottom, end, found;
 	int			 xoff, yoff;
 	u_int			 size, sx, sy;
@@ -1760,7 +1781,8 @@ window_pane_find_right(struct window_pane *wp)
 	top = wp->yoff;
 	bottom = wp->yoff + (int)wp->sy;
 
-	TAILQ_FOREACH(next, &w->panes, entry) {
+	TAILQ_FOREACH(pl, &w->panes, entry) {
+		next = pl->pane;
 		window_pane_full_size_offset(next, &xoff, &yoff, &sx, &sy);
 		if (next == wp)
 			continue;
@@ -1795,7 +1817,7 @@ window_pane_stack_push(struct window *w, struct window_pane *wp)
 	if (wp == NULL)
 		return;
 	window_pane_stack_remove(w, wp);
-	pl = panelink_find_by_pane(&w->panelinks, wp);
+	pl = panelink_find_by_pane(&w->panes, wp);
 	if (pl != NULL) {
 		TAILQ_INSERT_HEAD(&w->last_panelinks, pl, sentry);
 		pl->flags |= PANELINK_VISITED;
@@ -1810,7 +1832,7 @@ window_pane_stack_remove(struct window *w, struct window_pane *wp)
 
 	if (wp == NULL)
 		return;
-	pl = panelink_find_by_pane(&w->panelinks, wp);
+	pl = panelink_find_by_pane(&w->panes, wp);
 	if (pl != NULL && (pl->flags & PANELINK_VISITED)) {
 		TAILQ_REMOVE(&w->last_panelinks, pl, sentry);
 		pl->flags &= ~PANELINK_VISITED;

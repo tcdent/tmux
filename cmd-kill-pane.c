@@ -47,11 +47,13 @@ cmd_kill_pane_exec(struct cmd *self, struct cmdq_item *item)
 	struct args		*args = cmd_get_args(self);
 	struct cmd_find_state	*target = cmdq_get_target(item);
 	struct winlink		*wl = target->wl;
-	struct window_pane	*loopwp, *tmpwp, *wp = target->wp;
+	struct window_pane	*loopwp, *wp = target->wp;
+	struct panelink		*pl, *pl1;
 
 	if (args_has(args, 'a')) {
 		server_unzoom_window(wl->window);
-		TAILQ_FOREACH_SAFE(loopwp, &wl->window->panes, entry, tmpwp) {
+		TAILQ_FOREACH_SAFE(pl, &wl->window->panes, entry, pl1) {
+			loopwp = pl->pane;
 			if (loopwp == wp)
 				continue;
 			server_client_remove_pane(loopwp);

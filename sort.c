@@ -472,6 +472,7 @@ sort_get_panes(u_int *n, struct sort_criteria *sort_crit)
 	struct winlink			 *wl;
 	struct window			 *w;
 	struct window_pane		 *wp;
+	struct panelink			 *pl;
 	u_int				  i;
 	static struct window_pane	**l = NULL;
 	static u_int			  lsz = 0;
@@ -480,7 +481,8 @@ sort_get_panes(u_int *n, struct sort_criteria *sort_crit)
 	RB_FOREACH(s, sessions, &sessions) {
 		RB_FOREACH(wl, winlinks, &s->windows)  {
 			w = wl->window;
-			TAILQ_FOREACH(wp, &w->panes, entry) {
+			TAILQ_FOREACH(pl, &w->panes, entry) {
+				wp = pl->pane;
 				if (lsz <= i) {
 					lsz += 100;
 					l = xreallocarray(l, lsz, sizeof *l);
@@ -503,6 +505,7 @@ sort_get_panes_session(struct session *s, u_int *n,
 	struct winlink			 *wl = NULL;
 	struct window			 *w = NULL;
 	struct window_pane		 *wp = NULL;
+	struct panelink			 *pl;
 	u_int				  i;
 	static struct window_pane	**l = NULL;
 	static u_int			  lsz = 0;
@@ -510,7 +513,8 @@ sort_get_panes_session(struct session *s, u_int *n,
 	i = 0;
 	RB_FOREACH(wl, winlinks, &s->windows)  {
 		w = wl->window;
-		TAILQ_FOREACH(wp, &w->panes, entry) {
+		TAILQ_FOREACH(pl, &w->panes, entry) {
+			wp = pl->pane;
 			if (lsz <= i) {
 				lsz += 100;
 				l = xreallocarray(l, lsz, sizeof *l);
@@ -530,12 +534,14 @@ sort_get_panes_window(struct window *w, u_int *n,
     struct sort_criteria *sort_crit)
 {
 	struct window_pane		 *wp;
+	struct panelink			 *pl;
 	u_int				  i;
 	static struct window_pane	**l = NULL;
 	static u_int			  lsz = 0;
 
 	i = 0;
-	TAILQ_FOREACH(wp, &w->panes, entry) {
+	TAILQ_FOREACH(pl, &w->panes, entry) {
+		wp = pl->pane;
 		if (lsz <= i) {
 			lsz += 100;
 			l = xreallocarray(l, lsz, sizeof *l);

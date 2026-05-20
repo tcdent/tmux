@@ -103,9 +103,11 @@ static int
 screen_redraw_two_panes(struct window *w, enum layout_type *type)
 {
 	struct window_pane	*wp;
+	struct panelink		*pl;
 	u_int			 count = 0;
 
-	TAILQ_FOREACH(wp, &w->panes, entry) {
+	TAILQ_FOREACH(pl, &w->panes, entry) {
+		wp = pl->pane;
 		if (wp->flags & PANE_FLOATING || wp->layout_cell == NULL)
 			continue;
 		count++;
@@ -469,7 +471,7 @@ screen_redraw_check_cell(struct screen_redraw_ctx *ctx, int px, int py,
 		wp = pl->pane;
 	else {
 		wp = server_client_get_pane(c);
-		pl = panelink_find_by_pane(&w->panelinks, wp);
+		pl = panelink_find_by_pane(&w->panes, wp);
 	}
 	if (wp == NULL)
 		return (CELL_OUTSIDE);
@@ -670,6 +672,7 @@ screen_redraw_draw_pane_status(struct screen_redraw_ctx *ctx)
 	struct window		*w = c->session->curw->window;
 	struct tty		*tty = &c->tty;
 	struct window_pane	*wp;
+	struct panelink		*pl;
 	struct screen		*s;
 	struct visible_ranges	*r;
 	struct visible_range	*ri;
@@ -678,7 +681,8 @@ screen_redraw_draw_pane_status(struct screen_redraw_ctx *ctx)
 
 	log_debug("%s: %s @%u", __func__, c->name, w->id);
 
-	TAILQ_FOREACH(wp, &w->panes, entry) {
+	TAILQ_FOREACH(pl, &w->panes, entry) {
+		wp = pl->pane;
 		if (!window_pane_visible(wp))
 			continue;
 		s = &wp->status_screen;
@@ -742,6 +746,7 @@ screen_redraw_update(struct screen_redraw_ctx *ctx, uint64_t flags)
 	struct client			*c = ctx->c;
 	struct window			*w = c->session->curw->window;
 	struct window_pane		*wp;
+	struct panelink			*pl;
 	int				 redraw;
 	enum pane_lines			 lines;
 
@@ -760,7 +765,8 @@ screen_redraw_update(struct screen_redraw_ctx *ctx, uint64_t flags)
 	if (ctx->pane_status != PANE_STATUS_OFF) {
 		lines = ctx->pane_lines;
 		redraw = 0;
-		TAILQ_FOREACH(wp, &w->panes, entry) {
+		TAILQ_FOREACH(pl, &w->panes, entry) {
+			wp = pl->pane;
 			if (screen_redraw_make_pane_status(c, wp, ctx, lines))
 				redraw = 1;
 		}
@@ -919,6 +925,8 @@ screen_redraw_draw_border_arrows(struct screen_redraw_ctx *ctx, int i,
 	struct session		*s = c->session;
 	struct window		*w = s->curw->window;
 	struct options		*oo = w->options;
+	struct panelink		*pl;
+	struct window_pane	*first;
 	u_int			 x = ctx->ox + i, y = ctx->oy + j;
 	int			 value, arrows = 0, border;
 	enum layout_type	 type;
@@ -932,6 +940,9 @@ screen_redraw_draw_border_arrows(struct screen_redraw_ctx *ctx, int i,
 	if (value != PANE_BORDER_ARROWS && value != PANE_BORDER_BOTH)
 		return;
 
+	pl = TAILQ_FIRST(&w->panes);
+	first = (pl != NULL) ? pl->pane : NULL;
+
 	border = screen_redraw_pane_border(ctx, active, x, y);
 	if (border == SCREEN_REDRAW_INSIDE)
 		return;
@@ -939,7 +950,7 @@ screen_redraw_draw_border_arrows(struct screen_redraw_ctx *ctx, int i,
 	if (i == wp->xoff + 1) {
 		if (border == SCREEN_REDRAW_OUTSIDE) {
 			if (screen_redraw_two_panes(wp->window, &type)) {
-				if (active == TAILQ_FIRST(&w->panes))
+				if (active == first)
 					border = SCREEN_REDRAW_BORDER_BOTTOM;
 				else
 					border = SCREEN_REDRAW_BORDER_TOP;
@@ -959,7 +970,7 @@ screen_redraw_draw_border_arrows(struct screen_redraw_ctx *ctx, int i,
 	if (j == wp->yoff + 1) {
 		if (border == SCREEN_REDRAW_OUTSIDE) {
 			if (screen_redraw_two_panes(wp->window, &type)) {
-				if (active == TAILQ_FIRST(&w->panes))
+				if (active == first)
 					border = SCREEN_REDRAW_BORDER_RIGHT;
 				else
 					border = SCREEN_REDRAW_BORDER_LEFT;
@@ -1061,12 +1072,15 @@ screen_redraw_draw_borders(struct screen_redraw_ctx *ctx)
 	struct session		*s = c->session;
 	struct window		*w = s->curw->window;
 	struct window_pane	*wp;
+	struct panelink		*pl;
 	u_int			 i, j;
 
 	log_debug("%s: %s @%u", __func__, c->name, w->id);
 
-	TAILQ_FOREACH(wp, &w->panes, entry)
+	TAILQ_FOREACH(pl, &w->panes, entry) {
+		wp = pl->pane;
 		wp->border_gc_set = 0;
+	}
 
 	for (j = 0; j < c->tty.sy - ctx->statuslines; j++) {
 		for (i = 0; i < c->tty.sx; i++)
@@ -1081,10 +1095,12 @@ screen_redraw_draw_panes(struct screen_redraw_ctx *ctx)
 	struct client		*c = ctx->c;
 	struct window		*w = c->session->curw->window;
 	struct window_pane	*wp;
+	struct panelink		*pl;
 
 	log_debug("%s: %s @%u", __func__, c->name, w->id);
 
-	TAILQ_FOREACH(wp, &w->panes, entry) {
+	TAILQ_FOREACH(pl, &w->panes, entry) {
+		wp = pl->pane;
 		if (window_pane_visible(wp))
 			screen_redraw_draw_pane(ctx, wp);
 	}
@@ -1371,10 +1387,12 @@ screen_redraw_draw_pane_scrollbars(struct screen_redraw_ctx *ctx)
 	struct client		*c = ctx->c;
 	struct window		*w = c->session->curw->window;
 	struct window_pane	*wp;
+	struct panelink		*pl;
 
 	log_debug("%s: %s @%u", __func__, c->name, w->id);
 
-	TAILQ_FOREACH(wp, &w->panes, entry) {
+	TAILQ_FOREACH(pl, &w->panes, entry) {
+		wp = pl->pane;
 		if (window_pane_show_scrollbar(wp, ctx->pane_scrollbars) &&
 		    window_pane_visible(wp))
 			screen_redraw_draw_pane_scrollbar(ctx, wp);

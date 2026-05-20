@@ -49,22 +49,26 @@ cmd_rotate_window_exec(struct cmd *self, struct cmdq_item *item)
 	struct winlink		*wl = target->wl;
 	struct window		*w = wl->window;
 	struct window_pane	*wp, *wp2;
+	struct panelink		*pl, *pl2;
 	struct layout_cell	*lc;
 	u_int			 sx, sy, xoff, yoff;
 
 	window_push_zoom(w, 0, args_has(args, 'Z'));
 
 	if (args_has(args, 'D')) {
-		wp = TAILQ_LAST(&w->panes, window_panes);
-		TAILQ_REMOVE(&w->panes, wp, entry);
-		TAILQ_INSERT_HEAD(&w->panes, wp, entry);
+		pl = TAILQ_LAST(&w->panes, panelinks);
+		TAILQ_REMOVE(&w->panes, pl, entry);
+		TAILQ_INSERT_HEAD(&w->panes, pl, entry);
 
+		wp = pl->pane;
 		lc = wp->layout_cell;
 		xoff = wp->xoff; yoff = wp->yoff;
 		sx = wp->sx; sy = wp->sy;
-		TAILQ_FOREACH(wp, &w->panes, entry) {
-			if ((wp2 = TAILQ_NEXT(wp, entry)) == NULL)
+		TAILQ_FOREACH(pl, &w->panes, entry) {
+			wp = pl->pane;
+			if ((pl2 = TAILQ_NEXT(pl, entry)) == NULL)
 				break;
+			wp2 = pl2->pane;
 			wp->layout_cell = wp2->layout_cell;
 			if (wp->layout_cell != NULL)
 				wp->layout_cell->wp = wp;
@@ -77,19 +81,25 @@ cmd_rotate_window_exec(struct cmd *self, struct cmdq_item *item)
 		wp->xoff = xoff; wp->yoff = yoff;
 		window_pane_resize(wp, sx, sy);
 
-		if ((wp = TAILQ_PREV(w->active, window_panes, entry)) == NULL)
-			wp = TAILQ_LAST(&w->panes, window_panes);
+		pl = panelink_find_by_pane(&w->panes, w->active);
+		pl = (pl != NULL) ? TAILQ_PREV(pl, panelinks, entry) : NULL;
+		if (pl == NULL)
+			pl = TAILQ_LAST(&w->panes, panelinks);
+		wp = (pl != NULL) ? pl->pane : NULL;
 	} else {
-		wp = TAILQ_FIRST(&w->panes);
-		TAILQ_REMOVE(&w->panes, wp, entry);
-		TAILQ_INSERT_TAIL(&w->panes, wp, entry);
+		pl = TAILQ_FIRST(&w->panes);
+		TAILQ_REMOVE(&w->panes, pl, entry);
+		TAILQ_INSERT_TAIL(&w->panes, pl, entry);
 
+		wp = pl->pane;
 		lc = wp->layout_cell;
 		xoff = wp->xoff; yoff = wp->yoff;
 		sx = wp->sx; sy = wp->sy;
-		TAILQ_FOREACH_REVERSE(wp, &w->panes, window_panes, entry) {
-			if ((wp2 = TAILQ_PREV(wp, window_panes, entry)) == NULL)
+		TAILQ_FOREACH_REVERSE(pl, &w->panes, panelinks, entry) {
+			wp = pl->pane;
+			if ((pl2 = TAILQ_PREV(pl, panelinks, entry)) == NULL)
 				break;
+			wp2 = pl2->pane;
 			wp->layout_cell = wp2->layout_cell;
 			if (wp->layout_cell != NULL)
 				wp->layout_cell->wp = wp;
@@ -102,8 +112,11 @@ cmd_rotate_window_exec(struct cmd *self, struct cmdq_item *item)
 		wp->xoff = xoff; wp->yoff = yoff;
 		window_pane_resize(wp, sx, sy);
 
-		if ((wp = TAILQ_NEXT(w->active, entry)) == NULL)
-			wp = TAILQ_FIRST(&w->panes);
+		pl = panelink_find_by_pane(&w->panes, w->active);
+		pl = (pl != NULL) ? TAILQ_NEXT(pl, entry) : NULL;
+		if (pl == NULL)
+			pl = TAILQ_FIRST(&w->panes);
+		wp = (pl != NULL) ? pl->pane : NULL;
 	}
 
 	window_set_active_pane(w, wp, 1);

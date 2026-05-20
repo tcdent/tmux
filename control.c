@@ -1048,6 +1048,7 @@ control_check_subs_timer(__unused int fd, __unused short events, void *data)
 	struct format_tree	*ft;
 	struct winlink		*wl;
 	struct window_pane	*wp;
+	struct panelink		*pl;
 	struct timeval		 tv = { .tv_sec = 1 };
 	int			 have_session = 0, have_all_panes = 0;
 	int			 have_all_windows = 0;
@@ -1104,7 +1105,8 @@ control_check_subs_timer(__unused int fd, __unused short events, void *data)
 	/* Check all-panes subscriptions. */
 	if (have_all_panes) {
 		RB_FOREACH(wl, winlinks, &s->windows) {
-			TAILQ_FOREACH(wp, &wl->window->panes, entry) {
+			TAILQ_FOREACH(pl, &wl->window->panes, entry) {
+				wp = pl->pane;
 				ft = format_create_defaults(NULL, c, s, wl, wp);
 				RB_FOREACH_SAFE(csub, control_subs, &cs->subs,
 				    csub1) {

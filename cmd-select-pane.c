@@ -106,9 +106,16 @@ cmd_select_pane_exec(struct cmd *self, struct cmdq_item *item)
 		lastpl = TAILQ_FIRST(&w->last_panelinks);
 		lastwp = (lastpl != NULL) ? lastpl->pane : NULL;
 		if (lastwp == NULL && window_count_panes(w, 1) == 2) {
-			lastwp = TAILQ_PREV(w->active, window_panes, entry);
-			if (lastwp == NULL)
-				lastwp = TAILQ_NEXT(w->active, entry);
+			lastpl = panelink_find_by_pane(&w->panes, w->active);
+			lastpl = (lastpl != NULL) ?
+			    TAILQ_PREV(lastpl, panelinks, entry) : NULL;
+			if (lastpl == NULL) {
+				lastpl = panelink_find_by_pane(&w->panes,
+				    w->active);
+				lastpl = (lastpl != NULL) ?
+				    TAILQ_NEXT(lastpl, entry) : NULL;
+			}
+			lastwp = (lastpl != NULL) ? lastpl->pane : NULL;
 		}
 		if (lastwp == NULL) {
 			cmdq_error(item, "no last pane");

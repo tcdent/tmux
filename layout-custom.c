@@ -30,7 +30,7 @@ static int			 layout_append(struct layout_cell *, char *,
 static int			 layout_construct(struct layout_cell *,
 				     const char **, struct layout_cell **,
 				     struct layout_cell **);
-static void			 layout_assign(struct window_pane **,
+static void			 layout_assign(struct panelink **,
 				     struct layout_cell *, int);
 
 /* Find the bottom-right cell. */
@@ -179,7 +179,6 @@ int
 layout_parse(struct window *w, const char *layout, char **cause)
 {
 	struct layout_cell	*lcchild, *tiled_lc = NULL, *floating_lc = NULL;
-	struct window_pane	*wp;
 	struct panelink		*pl;
 	u_int			 npanes, ncells, sx = 0, sy = 0;
 	u_short			 csum;
@@ -285,11 +284,11 @@ layout_parse(struct window *w, const char *layout, char **cause)
 	w->layout_root = tiled_lc;
 
 	/* Assign the panes into the cells. */
-	wp = TAILQ_FIRST(&w->panes);
+	pl = TAILQ_FIRST(&w->panes);
 	if (tiled_lc != NULL)
-		layout_assign(&wp, tiled_lc, 0);
+		layout_assign(&pl, tiled_lc, 0);
 	if (floating_lc != NULL)
-		layout_assign(&wp, floating_lc, PANE_FLOATING);
+		layout_assign(&pl, floating_lc, PANE_FLOATING);
 
         /* Fix pane Z indexes. */
         while (!TAILQ_EMPTY(&w->z_index)) {
@@ -322,7 +321,7 @@ fail:
 
 /* Assign panes into cells. */
 static void
-layout_assign(struct window_pane **wp, struct layout_cell *lc, int flags)
+layout_assign(struct panelink **pl, struct layout_cell *lc, int flags)
 {
 	struct layout_cell	*lcchild;
 
@@ -331,18 +330,18 @@ layout_assign(struct window_pane **wp, struct layout_cell *lc, int flags)
 
 	switch (lc->type) {
 	case LAYOUT_WINDOWPANE:
-		layout_make_leaf(lc, *wp);
-		(*wp)->flags |= flags;
-		*wp = TAILQ_NEXT(*wp, entry);
+		layout_make_leaf(lc, (*pl)->pane);
+		(*pl)->pane->flags |= flags;
+		*pl = TAILQ_NEXT(*pl, entry);
 		return;
 	case LAYOUT_LEFTRIGHT:
 	case LAYOUT_TOPBOTTOM:
 		TAILQ_FOREACH(lcchild, &lc->cells, entry)
-			layout_assign(wp, lcchild, flags);
+			layout_assign(pl, lcchild, flags);
 		return;
 	case LAYOUT_FLOATING:
 		TAILQ_FOREACH(lcchild, &lc->cells, entry)
-			layout_assign(wp, lcchild, PANE_FLOATING);
+			layout_assign(pl, lcchild, PANE_FLOATING);
 		return;
 	}
 }

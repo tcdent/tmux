@@ -250,6 +250,7 @@ window_tree_build_window(struct session *s, struct winlink *wl,
 	struct mode_tree_item		*mti;
 	char				*name, *text;
 	struct window_pane		*wp, **l;
+	struct panelink			*pl;
 	u_int				 n, i;
 	int				 expanded;
 	struct format_tree		*ft;
@@ -277,9 +278,10 @@ window_tree_build_window(struct session *s, struct winlink *wl,
 	free(name);
 	mode_tree_align(mti, 1);
 
-	if ((wp = TAILQ_FIRST(&wl->window->panes)) == NULL)
+	if ((pl = TAILQ_FIRST(&wl->window->panes)) == NULL)
 		goto empty;
-	if (TAILQ_NEXT(wp, entry) == NULL) {
+	wp = pl->pane;
+	if (TAILQ_NEXT(pl, entry) == NULL) {
 		if (!window_tree_filter_pane(s, wl, wp, filter))
 			goto empty;
 	}
@@ -568,6 +570,7 @@ window_tree_draw_window(struct window_tree_modedata *data, struct session *s,
 {
 	struct window		*w = wl->window;
 	struct window_pane	*wp;
+	struct panelink		*pl;
 	u_int			 cx = ctx->s->cx, cy = ctx->s->cy;
 	u_int			 loop, total, visible, each, width, offset;
 	u_int			 current, start, end, remaining, i;
@@ -588,7 +591,8 @@ window_tree_draw_window(struct window_tree_modedata *data, struct session *s,
 		visible = total;
 
 	current = 0;
-	TAILQ_FOREACH(wp, &w->panes, entry) {
+	TAILQ_FOREACH(pl, &w->panes, entry) {
+		wp = pl->pane;
 		if (wp == w->active)
 			break;
 		current++;
@@ -651,7 +655,8 @@ window_tree_draw_window(struct window_tree_modedata *data, struct session *s,
 	data->each = each;
 
 	i = loop = 0;
-	TAILQ_FOREACH(wp, &w->panes, entry) {
+	TAILQ_FOREACH(pl, &w->panes, entry) {
+		wp = pl->pane;
 		if (loop == end)
 			break;
 		if (loop < start) {
@@ -1173,6 +1178,7 @@ window_tree_mouse(struct window_tree_modedata *data, key_code key, u_int x,
 	struct session		*s;
 	struct winlink		*wl;
 	struct window_pane	*wp;
+	struct panelink		*pl;
 	u_int			 loop;
 
 	if (key != KEYC_MOUSEDOWN1_PANE)
@@ -1215,10 +1221,13 @@ window_tree_mouse(struct window_tree_modedata *data, key_code key, u_int x,
 			return (KEYC_NONE);
 		mode_tree_expand_current(data->data);
 		loop = 0;
-		TAILQ_FOREACH(wp, &wl->window->panes, entry) {
+		wp = NULL;
+		TAILQ_FOREACH(pl, &wl->window->panes, entry) {
+			wp = pl->pane;
 			if (loop == data->start + x)
 				break;
 			loop++;
+			wp = NULL;
 		}
 		if (wp != NULL)
 			mode_tree_set_current(data->data, (uint64_t)wp);

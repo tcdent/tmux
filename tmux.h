@@ -1258,9 +1258,9 @@ struct panelink {
 	struct layout_cell	*layout_cell;
 	struct layout_cell	*saved_layout_cell;
 
-	TAILQ_ENTRY(panelink)	 entry;		/* in window->panelinks */
+	TAILQ_ENTRY(panelink)	 entry;		/* in window->panes (positional) */
 	TAILQ_ENTRY(panelink)	 sentry;	/* in window->last_panelinks */
-	TAILQ_ENTRY(panelink)	 zentry;	/* in window->z_index_panelinks */
+	TAILQ_ENTRY(panelink)	 zentry;	/* in window->z_index */
 	TAILQ_ENTRY(panelink)	 wentry;	/* in pane->panelinks (fan-out) */
 };
 TAILQ_HEAD(panelinks, panelink);
@@ -1359,7 +1359,6 @@ struct window_pane {
 
 	struct visible_ranges r;
 
-	TAILQ_ENTRY(window_pane) entry;  /* link in list of all panes */
 	RB_ENTRY(window_pane) tree_entry;
 };
 TAILQ_HEAD(window_panes, window_pane);
@@ -1383,8 +1382,7 @@ struct window {
 	struct window_pane	*active;
 	struct panelinks	 last_panelinks;
 	struct panelinks         z_index;
-	struct window_panes	 panes;
-	struct panelinks	 panelinks;
+	struct panelinks	 panes;
 
 	int			 lastlayout;
 	struct layout_cell	*layout_root;

@@ -200,10 +200,12 @@ cmd_display_panes_draw(struct client *c, __unused void *data,
 {
 	struct window		*w = c->session->curw->window;
 	struct window_pane	*wp;
+	struct panelink		*pl;
 
 	log_debug("%s: %s @%u", __func__, c->name, w->id);
 
-	TAILQ_FOREACH(wp, &w->panes, entry) {
+	TAILQ_FOREACH(pl, &w->panes, entry) {
+		wp = pl->pane;
 		if (window_pane_visible(wp))
 			cmd_display_panes_draw_pane(ctx, wp);
 	}

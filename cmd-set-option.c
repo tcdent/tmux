@@ -87,6 +87,7 @@ cmd_set_option_exec(struct cmd *self, struct cmdq_item *item)
 	int				 append = args_has(args, 'a');
 	struct cmd_find_state		*target = cmdq_get_target(item);
 	struct window_pane		*loop;
+	struct panelink			*pl;
 	struct options			*oo;
 	struct options_entry		*parent, *o, *po;
 	char				*name, *argument, *expanded = NULL;
@@ -166,7 +167,8 @@ cmd_set_option_exec(struct cmd *self, struct cmdq_item *item)
 
 	/* Change the option. */
 	if (args_has(args, 'U') && scope == OPTIONS_TABLE_WINDOW) {
-		TAILQ_FOREACH(loop, &target->w->panes, entry) {
+		TAILQ_FOREACH(pl, &target->w->panes, entry) {
+			loop = pl->pane;
 			po = options_get_only(loop->options, name);
 			if (po == NULL)
 				continue;

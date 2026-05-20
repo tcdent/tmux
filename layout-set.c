@@ -127,8 +127,10 @@ static struct window_pane *
 layout_first_tiled(struct window *w)
 {
 	struct window_pane	*wp;
+	struct panelink		*pl;
 
-	TAILQ_FOREACH(wp, &w->panes, entry) {
+	TAILQ_FOREACH(pl, &w->panes, entry) {
+		wp = pl->pane;
 		if (~wp->flags & PANE_FLOATING)
 			return (wp);
 	}
@@ -139,6 +141,7 @@ static void
 layout_set_even(struct window *w, enum layout_type type)
 {
 	struct window_pane	*wp;
+	struct panelink		*pl;
 	struct layout_cell	*lc, *lcnew;
 	u_int			 n, sx, sy;
 
@@ -167,7 +170,8 @@ layout_set_even(struct window *w, enum layout_type type)
 	layout_make_node(lc, type);
 
 	/* Build new leaf cells. */
-	TAILQ_FOREACH(wp, &w->panes, entry) {
+	TAILQ_FOREACH(pl, &w->panes, entry) {
+		wp = pl->pane;
 		if (wp->flags & PANE_FLOATING)
 			continue;
 		lcnew = layout_create_cell(lc);
@@ -207,6 +211,7 @@ static void
 layout_set_main_h(struct window *w)
 {
 	struct window_pane	*wp;
+	struct panelink		*pl;
 	struct layout_cell	*lc, *lcmain, *lcother, *lcchild;
 	u_int			 n, mainh, otherh, sx, sy;
 	char			*cause;
@@ -271,9 +276,13 @@ layout_set_main_h(struct window *w)
 	lcother = layout_create_cell(lc);
 	layout_set_size(lcother, sx, otherh, 0, 0);
 	if (n == 1) {
-		wp = TAILQ_NEXT(layout_first_tiled(w), entry);
-		while (wp != NULL && (wp->flags & PANE_FLOATING))
-			wp = TAILQ_NEXT(wp, entry);
+		pl = panelink_find_by_pane(&w->panes, layout_first_tiled(w));
+		pl = (pl != NULL) ? TAILQ_NEXT(pl, entry) : NULL;
+		wp = (pl != NULL) ? pl->pane : NULL;
+		while (wp != NULL && (wp->flags & PANE_FLOATING)) {
+			pl = TAILQ_NEXT(pl, entry);
+			wp = (pl != NULL) ? pl->pane : NULL;
+		}
 		layout_make_leaf(lcother, wp);
 		TAILQ_INSERT_TAIL(&lc->cells, lcother, entry);
 	} else {
@@ -281,7 +290,8 @@ layout_set_main_h(struct window *w)
 		TAILQ_INSERT_TAIL(&lc->cells, lcother, entry);
 
 		/* Add the remaining panes as children. */
-		TAILQ_FOREACH(wp, &w->panes, entry) {
+		TAILQ_FOREACH(pl, &w->panes, entry) {
+			wp = pl->pane;
 			if (wp->flags & PANE_FLOATING)
 				continue;
 			if (wp == layout_first_tiled(w))
@@ -309,6 +319,7 @@ static void
 layout_set_main_h_mirrored(struct window *w)
 {
 	struct window_pane	*wp;
+	struct panelink		*pl;
 	struct layout_cell	*lc, *lcmain, *lcother, *lcchild;
 	u_int			 n, mainh, otherh, sx, sy;
 	char			*cause;
@@ -367,9 +378,13 @@ layout_set_main_h_mirrored(struct window *w)
 	lcother = layout_create_cell(lc);
 	layout_set_size(lcother, sx, otherh, 0, 0);
 	if (n == 1) {
-		wp = TAILQ_NEXT(layout_first_tiled(w), entry);
-		while (wp != NULL && (wp->flags & PANE_FLOATING))
-			wp = TAILQ_NEXT(wp, entry);
+		pl = panelink_find_by_pane(&w->panes, layout_first_tiled(w));
+		pl = (pl != NULL) ? TAILQ_NEXT(pl, entry) : NULL;
+		wp = (pl != NULL) ? pl->pane : NULL;
+		while (wp != NULL && (wp->flags & PANE_FLOATING)) {
+			pl = TAILQ_NEXT(pl, entry);
+			wp = (pl != NULL) ? pl->pane : NULL;
+		}
 		layout_make_leaf(lcother, wp);
 		TAILQ_INSERT_TAIL(&lc->cells, lcother, entry);
 	} else {
@@ -377,7 +392,8 @@ layout_set_main_h_mirrored(struct window *w)
 		TAILQ_INSERT_TAIL(&lc->cells, lcother, entry);
 
 		/* Add the remaining panes as children. */
-		TAILQ_FOREACH(wp, &w->panes, entry) {
+		TAILQ_FOREACH(pl, &w->panes, entry) {
+			wp = pl->pane;
 			if (wp->flags & PANE_FLOATING)
 				continue;
 			if (wp == layout_first_tiled(w))
@@ -411,6 +427,7 @@ static void
 layout_set_main_v(struct window *w)
 {
 	struct window_pane	*wp;
+	struct panelink		*pl;
 	struct layout_cell	*lc, *lcmain, *lcother, *lcchild;
 	u_int			 n, mainw, otherw, sx, sy;
 	char			*cause;
@@ -475,9 +492,13 @@ layout_set_main_v(struct window *w)
 	lcother = layout_create_cell(lc);
 	layout_set_size(lcother, otherw, sy, 0, 0);
 	if (n == 1) {
-		wp = TAILQ_NEXT(layout_first_tiled(w), entry);
-		while (wp != NULL && (wp->flags & PANE_FLOATING))
-			wp = TAILQ_NEXT(wp, entry);
+		pl = panelink_find_by_pane(&w->panes, layout_first_tiled(w));
+		pl = (pl != NULL) ? TAILQ_NEXT(pl, entry) : NULL;
+		wp = (pl != NULL) ? pl->pane : NULL;
+		while (wp != NULL && (wp->flags & PANE_FLOATING)) {
+			pl = TAILQ_NEXT(pl, entry);
+			wp = (pl != NULL) ? pl->pane : NULL;
+		}
 		layout_make_leaf(lcother, wp);
 		TAILQ_INSERT_TAIL(&lc->cells, lcother, entry);
 	} else {
@@ -485,7 +506,8 @@ layout_set_main_v(struct window *w)
 		TAILQ_INSERT_TAIL(&lc->cells, lcother, entry);
 
 		/* Add the remaining panes as children. */
-		TAILQ_FOREACH(wp, &w->panes, entry) {
+		TAILQ_FOREACH(pl, &w->panes, entry) {
+			wp = pl->pane;
 			if (wp->flags & PANE_FLOATING)
 				continue;
 			if (wp == layout_first_tiled(w))
@@ -513,6 +535,7 @@ static void
 layout_set_main_v_mirrored(struct window *w)
 {
 	struct window_pane	*wp;
+	struct panelink		*pl;
 	struct layout_cell	*lc, *lcmain, *lcother, *lcchild;
 	u_int			 n, mainw, otherw, sx, sy;
 	char			*cause;
@@ -571,9 +594,13 @@ layout_set_main_v_mirrored(struct window *w)
 	lcother = layout_create_cell(lc);
 	layout_set_size(lcother, otherw, sy, 0, 0);
 	if (n == 1) {
-		wp = TAILQ_NEXT(layout_first_tiled(w), entry);
-		while (wp != NULL && (wp->flags & PANE_FLOATING))
-			wp = TAILQ_NEXT(wp, entry);
+		pl = panelink_find_by_pane(&w->panes, layout_first_tiled(w));
+		pl = (pl != NULL) ? TAILQ_NEXT(pl, entry) : NULL;
+		wp = (pl != NULL) ? pl->pane : NULL;
+		while (wp != NULL && (wp->flags & PANE_FLOATING)) {
+			pl = TAILQ_NEXT(pl, entry);
+			wp = (pl != NULL) ? pl->pane : NULL;
+		}
 		layout_make_leaf(lcother, wp);
 		TAILQ_INSERT_TAIL(&lc->cells, lcother, entry);
 	} else {
@@ -581,7 +608,8 @@ layout_set_main_v_mirrored(struct window *w)
 		TAILQ_INSERT_TAIL(&lc->cells, lcother, entry);
 
 		/* Add the remaining panes as children. */
-		TAILQ_FOREACH(wp, &w->panes, entry) {
+		TAILQ_FOREACH(pl, &w->panes, entry) {
+			wp = pl->pane;
 			if (wp->flags & PANE_FLOATING)
 				continue;
 			if (wp == layout_first_tiled(w))
@@ -616,6 +644,7 @@ layout_set_tiled(struct window *w)
 {
 	struct options		*oo = w->options;
 	struct window_pane	*wp;
+	struct panelink		*pl;
 	struct layout_cell	*lc, *lcrow, *lcchild;
 	u_int			 n, width, height, used, sx, sy;
 	u_int			 i, j, columns, rows, max_columns;
@@ -660,9 +689,12 @@ layout_set_tiled(struct window *w)
 	layout_make_node(lc, LAYOUT_TOPBOTTOM);
 
 	/* Create a grid of the cells, skipping any floating panes. */
-	wp = TAILQ_FIRST(&w->panes);
-	while (wp != NULL && (wp->flags & PANE_FLOATING))
-		wp = TAILQ_NEXT(wp, entry);
+	pl = TAILQ_FIRST(&w->panes);
+	wp = (pl != NULL) ? pl->pane : NULL;
+	while (wp != NULL && (wp->flags & PANE_FLOATING)) {
+		pl = TAILQ_NEXT(pl, entry);
+		wp = (pl != NULL) ? pl->pane : NULL;
+	}
 	for (j = 0; j < rows; j++) {
 		/* If this is the last cell, all done. */
 		if (wp == NULL)
@@ -676,9 +708,12 @@ layout_set_tiled(struct window *w)
 		/* If only one column, just use the row directly. */
 		if (n - (j * columns) == 1 || columns == 1) {
 			layout_make_leaf(lcrow, wp);
-			wp = TAILQ_NEXT(wp, entry);
-			while (wp != NULL && (wp->flags & PANE_FLOATING))
-				wp = TAILQ_NEXT(wp, entry);
+			pl = TAILQ_NEXT(pl, entry);
+			wp = (pl != NULL) ? pl->pane : NULL;
+			while (wp != NULL && (wp->flags & PANE_FLOATING)) {
+				pl = TAILQ_NEXT(pl, entry);
+				wp = (pl != NULL) ? pl->pane : NULL;
+			}
 			continue;
 		}
 
@@ -692,9 +727,12 @@ layout_set_tiled(struct window *w)
 			TAILQ_INSERT_TAIL(&lcrow->cells, lcchild, entry);
 
 			/* Move to the next non-floating cell. */
-			wp = TAILQ_NEXT(wp, entry);
-			while (wp != NULL && (wp->flags & PANE_FLOATING))
-				wp = TAILQ_NEXT(wp, entry);
+			pl = TAILQ_NEXT(pl, entry);
+			wp = (pl != NULL) ? pl->pane : NULL;
+			while (wp != NULL && (wp->flags & PANE_FLOATING)) {
+				pl = TAILQ_NEXT(pl, entry);
+				wp = (pl != NULL) ? pl->pane : NULL;
+			}
 			if (wp == NULL)
 				break;
 		}

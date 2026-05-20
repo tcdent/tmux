@@ -96,10 +96,9 @@ cmd_break_pane_exec(struct cmd *self, struct cmdq_item *item)
 		return (CMD_RETURN_ERROR);
 	}
 
-	pl = panelink_find_by_pane(&w->panelinks, wp);
-	TAILQ_REMOVE(&w->panes, wp, entry);
+	pl = panelink_find_by_pane(&w->panes, wp);
+	TAILQ_REMOVE(&w->panes, pl, entry);
 	TAILQ_REMOVE(&w->z_index, pl, zentry);
-	TAILQ_REMOVE(&w->panelinks, pl, entry);
 	server_client_remove_pane(wp);
 	window_lost_pane(w, wp);
 	layout_close_pane(wp);
@@ -107,9 +106,8 @@ cmd_break_pane_exec(struct cmd *self, struct cmdq_item *item)
 	w = wp->window = window_create(w->sx, w->sy, w->xpixel, w->ypixel);
 	options_set_parent(wp->options, w->options);
 	wp->flags |= (PANE_STYLECHANGED|PANE_THEMECHANGED);
-	TAILQ_INSERT_HEAD(&w->panes, wp, entry);
+	TAILQ_INSERT_HEAD(&w->panes, pl, entry);
 	TAILQ_INSERT_HEAD(&w->z_index, pl, zentry);
-	TAILQ_INSERT_TAIL(&w->panelinks, pl, entry);
 	pl->window = w;
 	w->active = wp;
 	w->latest = tc;

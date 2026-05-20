@@ -245,7 +245,7 @@ layout_fix_zindexes(struct window *w, struct layout_cell *lc)
 
 	switch (lc->type) {
 	case LAYOUT_WINDOWPANE:
-		pl = panelink_find_by_pane(&w->panelinks, lc->wp);
+		pl = panelink_find_by_pane(&w->panes, lc->wp);
 		if (pl != NULL)
 			TAILQ_INSERT_TAIL(&w->z_index, pl, zentry);
 		break;
@@ -356,6 +356,7 @@ void
 layout_fix_panes(struct window *w, struct window_pane *skip)
 {
 	struct window_pane	*wp;
+	struct panelink		*pl;
 	struct layout_cell	*lc;
 	int			 status, scrollbars, sb_pos, sb_w, sb_pad;
 	u_int			 sx, sy;
@@ -364,7 +365,8 @@ layout_fix_panes(struct window *w, struct window_pane *skip)
 	scrollbars = options_get_number(w->options, "pane-scrollbars");
 	sb_pos = options_get_number(w->options, "pane-scrollbars-position");
 
-	TAILQ_FOREACH(wp, &w->panes, entry) {
+	TAILQ_FOREACH(pl, &w->panes, entry) {
+		wp = pl->pane;
 		if ((lc = wp->layout_cell) == NULL || wp == skip)
 			continue;
 

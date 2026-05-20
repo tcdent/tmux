@@ -605,6 +605,7 @@ server_client_check_mouse_in_pane(struct window_pane *wp, u_int px, u_int py,
 	struct window		*w = wp->window;
 	struct options		*wo = w->options;
 	struct window_pane	*fwp;
+	struct panelink		*pl;
 	int			 pane_status, sb, sb_pos, sb_w, sb_pad;
 	int			 pane_status_line, sl_top, sl_bottom;
 	int			 bdr_bottom, bdr_top, bdr_right;
@@ -662,7 +663,8 @@ server_client_check_mouse_in_pane(struct window_pane *wp, u_int px, u_int py,
 		}
 	} else {
 		/* Try the pane borders. */
-		TAILQ_FOREACH(fwp, &w->panes, entry) {
+		TAILQ_FOREACH(pl, &w->panes, entry) {
+			fwp = pl->pane;
 			if ((w->flags & WINDOW_ZOOMED) &&
 			    (~fwp->flags & PANE_ZOOMED))
 				continue;
@@ -1459,6 +1461,7 @@ server_client_loop(void)
 	struct client			*c;
 	struct window			*w;
 	struct window_pane		*wp;
+	struct panelink			*pl;
 	struct window_mode_entry	*wme;
 
 	/* Check for window resize. This is done before redrawing. */
@@ -1467,7 +1470,8 @@ server_client_loop(void)
 
 	/* Notify modes that pane styles may have changed. */
 	RB_FOREACH(w, windows, &windows) {
-		TAILQ_FOREACH(wp, &w->panes, entry) {
+		TAILQ_FOREACH(pl, &w->panes, entry) {
+			wp = pl->pane;
 			if (wp->flags & PANE_STYLECHANGED) {
 				wme = TAILQ_FIRST(&wp->modes);
 				if (wme != NULL &&
@@ -1492,7 +1496,8 @@ server_client_loop(void)
 	 * their flags now.
 	 */
 	RB_FOREACH(w, windows, &windows) {
-		TAILQ_FOREACH(wp, &w->panes, entry) {
+		TAILQ_FOREACH(pl, &w->panes, entry) {
+			wp = pl->pane;
 			if (wp->fd != -1) {
 				server_client_check_pane_resize(wp);
 				server_client_check_pane_buffer(wp);
@@ -1504,8 +1509,10 @@ server_client_loop(void)
 
 	/* Send theme updates. */
 	RB_FOREACH(w, windows, &windows) {
-		TAILQ_FOREACH(wp, &w->panes, entry)
+		TAILQ_FOREACH(pl, &w->panes, entry) {
+			wp = pl->pane;
 			window_pane_send_theme_update(wp);
+		}
 	}
 }
 
@@ -1715,6 +1722,7 @@ server_client_reset_state(struct client *c)
 	struct tty		*tty = &c->tty;
 	struct window		*w = c->session->curw->window;
 	struct window_pane	*wp = server_client_get_pane(c), *loop;
+	struct panelink		*pl;
 	struct screen		*s = NULL;
 	struct options		*oo = c->session->options;
 	int			 mode = 0, cursor, flags;
@@ -1786,7 +1794,8 @@ server_client_reset_state(struct client *c)
 	if (options_get_number(oo, "mouse")) {
 		if (c->overlay_draw == NULL) {
 			mode &= ~ALL_MOUSE_MODES;
-			TAILQ_FOREACH(loop, &w->panes, entry) {
+			TAILQ_FOREACH(pl, &w->panes, entry) {
+				loop = pl->pane;
 				if (loop->screen->mode & MODE_MOUSE_ALL)
 					mode |= MODE_MOUSE_ALL;
 			}
@@ -1915,13 +1924,15 @@ server_client_check_modes(struct client *c)
 {
 	struct window			*w = c->session->curw->window;
 	struct window_pane		*wp;
+	struct panelink			*pl;
 	struct window_mode_entry	*wme;
 
 	if (c->flags & (CLIENT_CONTROL|CLIENT_SUSPENDED))
 		return;
 	if (~c->flags & CLIENT_REDRAWSTATUS)
 		return;
-	TAILQ_FOREACH(wp, &w->panes, entry) {
+	TAILQ_FOREACH(pl, &w->panes, entry) {
+		wp = pl->pane;
 		wme = TAILQ_FIRST(&wp->modes);
 		if (wme != NULL && wme->mode->update != NULL)
 			wme->mode->update(wme);
@@ -1936,6 +1947,7 @@ server_client_check_redraw(struct client *c)
 	struct tty		*tty = &c->tty;
 	struct window		*w = c->session->curw->window;
 	struct window_pane	*wp;
+	struct panelink		*pl;
 	int			 needed, tty_flags, mode = tty->mode;
 	uint64_t		 client_flags = 0;
 	int			 redraw_pane, redraw_scrollbar_only;
@@ -1965,7 +1977,8 @@ server_client_check_redraw(struct client *c)
 	if (c->flags & CLIENT_ALLREDRAWFLAGS)
 		needed = 1;
 	else {
-		TAILQ_FOREACH(wp, &w->panes, entry) {
+		TAILQ_FOREACH(pl, &w->panes, entry) {
+			wp = pl->pane;
 			if (wp->flags & PANE_REDRAW) {
 				needed = 1;
 				client_flags |= CLIENT_REDRAWPANES;
@@ -1988,7 +2001,8 @@ server_client_check_redraw(struct client *c)
 		}
 
 		if (~c->flags & CLIENT_REDRAWWINDOW) {
-			TAILQ_FOREACH(wp, &w->panes, entry) {
+			TAILQ_FOREACH(pl, &w->panes, entry) {
+				wp = pl->pane;
 				if (wp->flags & (PANE_REDRAW)) {
 					log_debug("%s: pane %%%u needs redraw",
 					    c->name, wp->id);
@@ -2027,7 +2041,8 @@ server_client_check_redraw(struct client *c)
 		 * If not redrawing the entire window, check whether each pane
 		 * needs to be redrawn.
 		 */
-		TAILQ_FOREACH(wp, &w->panes, entry) {
+		TAILQ_FOREACH(pl, &w->panes, entry) {
+			wp = pl->pane;
 			redraw_pane = 0;
 			redraw_scrollbar_only = 0;
 			if (wp->flags & PANE_REDRAW)

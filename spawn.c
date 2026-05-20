@@ -79,6 +79,7 @@ spawn_window(struct spawn_context *sc, char **cause)
 	struct session		*s = sc->s;
 	struct window		*w;
 	struct window_pane	*wp;
+	struct panelink		*pl;
 	struct winlink		*wl;
 	int			 idx = sc->idx;
 	u_int			 sx, sy, xpixel, ypixel;
@@ -93,9 +94,12 @@ spawn_window(struct spawn_context *sc, char **cause)
 	if (sc->flags & SPAWN_RESPAWN) {
 		w = sc->wl->window;
 		if (~sc->flags & SPAWN_KILL) {
-			TAILQ_FOREACH(wp, &w->panes, entry) {
+			wp = NULL;
+			TAILQ_FOREACH(pl, &w->panes, entry) {
+				wp = pl->pane;
 				if (wp->fd != -1)
 					break;
+				wp = NULL;
 			}
 			if (wp != NULL) {
 				xasprintf(cause, "window %s:%d still active",
@@ -104,13 +108,14 @@ spawn_window(struct spawn_context *sc, char **cause)
 			}
 		}
 
-		sc->wp0 = TAILQ_FIRST(&w->panes);
-		TAILQ_REMOVE(&w->panes, sc->wp0, entry);
+		pl = TAILQ_FIRST(&w->panes);
+		sc->wp0 = (pl != NULL) ? pl->pane : NULL;
+		TAILQ_REMOVE(&w->panes, pl, entry);
 
 		layout_free(w);
 		window_destroy_panes(w);
 
-		TAILQ_INSERT_HEAD(&w->panes, sc->wp0, entry);
+		TAILQ_INSERT_HEAD(&w->panes, pl, entry);
 		window_pane_resize(sc->wp0, w->sx, w->sy);
 
 		layout_init(w, sc->wp0);
