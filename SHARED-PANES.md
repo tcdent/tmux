@@ -183,26 +183,101 @@ This is where pane-sharing diverges from window-sharing:
   conflict is fundamental, not incidental.**
 
 This is the same class of problem tmux already solved one level up, for windows.
-The honest design is to introduce the analogous negotiation one level down:
+**The design is to duplicate the `window-size` machinery (`resize.c`) one level
+down**, not to invent something new.
 
-> **The pane grid size is a function over its panelinks' cell sizes**
-> (largest / smallest / manual / latest), and a view whose cell differs from the
-> grid is **clipped or padded by the renderer**.
+### 3.1 How `window-size` works today (the pattern to mirror)
 
-And here floating panes *help*: the occlusion machinery they added —
-`struct visible_ranges` + `tty_check_overlay_range` (`tty.c:1456`,
-`tty-draw.c:85`) — is exactly the primitive needed to paint a sub-rectangle of a
-pane's grid into a view whose cell is smaller than the grid. So floating panes
-both **complicate** sharing (more per-view state) and **enable** it (a clipping
-primitive that did not exist when the original audit was written).
+**Verified ✓** — `resize.c:99-460`, `options-table.c:1521-1531`,
+`layout.c:364-405`.
 
-**Decision (proposed, Unverified ⚠ until prototyped):** add a `pane-size`
-option mirroring `window-size`; default `latest` (resize the grid to the view
-being interacted with — matches today's single-view behaviour exactly when the
-panelink count is 1). Larger views pad; the negotiation degenerates to a no-op
-in the single-link case, preserving Steps 1–5's "zero behaviour change"
-guarantee. This is the load-bearing open question; it is *not* required to land
-Steps 1–5, only Step 6.
+The chain is **clients → negotiate → window size → layout → cells → pane grid**:
+
+1. `recalculate_sizes()` (@`resize.c:420`) is the global driver, fired on every
+   relevant change (attach/detach, client resize, link/unlink, layout change —
+   ~25 call sites). `recalculate_sizes_now` (@426) walks **every window**
+   (`RB_FOREACH(w, windows, &windows)`, @458) and calls `recalculate_size(w)`.
+2. `recalculate_size(w)` (@353) reads the `window-size` option
+   (largest/smallest/latest/manual, @371) and `aggressive-resize` (@372), then
+   calls `clients_calculate_size(...)` (@375).
+3. `clients_calculate_size` (@114) is the negotiation core. It **iterates all
+   clients** (`TAILQ_FOREACH(loop, &clients, entry)`, @152), skips those not
+   viewing the window (`session_has` via a `skip_client` callback) or flagged
+   ignore (`ignore_client_size`, @68), and folds each candidate's size
+   (`loop->tty.sx`, `tty.sy - status_line_size`, @186-188) into a running
+   min (smallest), max (largest), the `w->latest` client (latest, @167), or
+   `w->manual_sx/sy` (manual, @130).
+4. The result is applied by `resize_window(w, sx, sy)` (@26): `layout_resize`
+   redistributes across the split tree → each cell gets `sx/sy/xoff/yoff` →
+   `layout_fix_panes` (`layout.c:364`) pushes the cell rectangle into each
+   pane's grid via `window_pane_resize`, which resizes `wp->base` and
+   `TIOCSWINSZ`-es the PTY.
+
+The unit of negotiation is the **window**. Panes never negotiate — they are told
+by the layout. A pane has exactly one grid because it always belonged to exactly
+one window.
+
+### 3.2 `pane-size`: the same machinery, one level down
+
+The mapping is mechanical:
+
+| `window-size` (window unit) | source | `pane-size` (pane unit) |
+|---|---|---|
+| candidates iterated | `&clients`, filtered by `session_has(c->session, w)` | `wp->panelinks` — the windows viewing the pane |
+| each candidate's size | `c->tty.sx`, `tty.sy - status` (`resize.c:186`) | `pl->layout_cell->sx/sy` — the cell that window's layout assigned |
+| option (choice) | `window-size` (`options-table.c:1521`) | new `pane-size`, same 4 choices, `OPTIONS_TABLE_PANE` scope |
+| "latest" pointer | `w->latest` (client, `tmux.h:1351`) | new `wp->latest` (panelink — the last-focused view) |
+| manual size | `w->manual_sx/sy`, set by `resize-window` | `wp` manual size, set by `resize-pane` |
+| negotiation fn | `clients_calculate_size` (@114) | new `panelinks_calculate_size` |
+| per-unit driver | `recalculate_size(w)` (@353) | new `recalculate_pane_size(wp)` |
+| global driver | `recalculate_sizes` walks windows (@458) | extend it to also walk panes |
+| apply | `resize_window`→`layout_resize`→`layout_fix_panes`→`window_pane_resize` | `window_pane_resize(wp, sx, sy)` directly (grid + PTY) |
+
+**The one architectural change:** `layout_fix_panes` (`layout.c:364-405`)
+currently *fuses* two things — it sets the cell's view rectangle
+(`wp->xoff/yoff` = `lc->xoff/yoff`) **and** resizes the grid (`window_pane_resize`)
+in the same loop. Under sharing these must decouple:
+
+- **View rectangle** (where the pane is drawn in this window): per-panelink,
+  already carried by `pl->layout_cell` (`sx/sy/xoff/yoff`). This is set by
+  phase 1 (window layout), independent of the grid.
+- **Grid size** (the pane's content, the PTY size): negotiated in a new phase 2
+  from all panelinks' cells, then applied once via `window_pane_resize`.
+
+So `recalculate_sizes_now` gains a second pass after the window loop:
+*phase 1* lays out every window's cells (existing); *phase 2* walks every pane
+and negotiates its grid from its panelinks' cells. There is **no chicken-and-egg**
+— cell geometry comes from the split tree + window size, never from the pane's
+grid (`layout_resize` reads only `PANE_MINIMUM` constants), so phase 1 does not
+depend on phase 2's output.
+
+### 3.3 Rendering when cell ≠ grid
+
+Once the grid can differ from a view's cell, the renderer clips or pads:
+- **cell smaller than grid** (e.g. `pane-size largest`, this view is the small
+  one) → draw a sub-rectangle of the grid;
+- **cell larger than grid** (e.g. `pane-size smallest`, this view is the big
+  one) → draw the grid and pad the remainder.
+
+This is exactly the multi-client-same-window tradeoff today, and the primitive
+already exists: floating panes added `struct visible_ranges` +
+`tty_check_overlay_range` (`tty.c:1456`, `tty-draw.c:85`) precisely to paint a
+sub-rectangle of a pane into a view. Floating panes therefore both **complicate**
+sharing (more per-view state) and **enable** it (the clipping primitive that did
+not exist when the original audit was written).
+
+### 3.4 Default and degeneracy
+
+**Verified ✓** — `window-size` defaults to `latest` (`options-table.c:1525`,
+`WINDOW_SIZE_LATEST`). `pane-size` mirrors this: **default `latest`**, meaning
+the grid follows the most-recently-focused view. With a single panelink,
+"latest/largest/smallest of one cell" is that cell, and `window_pane_resize` to
+the cell is exactly what `layout_fix_panes` does today — so the negotiation is a
+**no-op in the unshared case**, preserving the "zero behaviour change" guarantee
+of Steps 1–5. The feature only bites once a second panelink exists (Step 6).
+
+`aggressive-resize` has a natural analog ("only size to windows where this pane
+is active") but is **deferred** — see §8 ambiguity 9.
 
 ---
 
@@ -236,10 +311,14 @@ Changes to `struct window_pane` (`tmux.h:1248`):
 - **Remove** `entry`, `sentry`, **and `zentry`** → migrate to `panelink`.
 - **Remove** flags `PANE_VISITED` and `PANE_FLOATING` → become `panelink`
   flags.
+- **Add** `void *latest` (the last-focused panelink, mirroring `w->latest`,
+  `tmux.h:1351`) and `u_int manual_sx/manual_sy` (mirroring `w->manual_sx/sy`,
+  `tmux.h:1375-1376`) for the `pane-size` negotiation (§3.2).
 - **Keep** `tree_entry` (global id RB), the grid, PTY, and all per-pane state.
-- Geometry `xoff/yoff/sx/sy` and the grid: see §3 — these stay on the pane for
-  now; the panelink's `layout_cell` is the per-view source of truth and the
-  grid size is negotiated.
+- Geometry `xoff/yoff/sx/sy` and the grid: see §3 — the grid (`wp->base`) stays
+  the single negotiated content size; the panelink's `layout_cell` is the
+  per-view view rectangle. Decoupling these in `layout_fix_panes` is the one
+  architectural change (§3.2).
 
 Changes to `struct window` (`tmux.h:1349`):
 - `panes` → `panelinks`, `last_panes` → `last_panelinks`,
@@ -393,8 +472,17 @@ ones surfaced by this pass.
 8. **`PANE_ZOOMED` per-view or per-pane?** — zoom is conceptually per-window
    (`WINDOW_ZOOMED` exists at `tmux.h:1393`). Likely per-view → panelink flag.
    **Unverified ⚠** — needs reading the zoom paths before deciding.
-9. **Geometry / pane size** — the §3 problem. Proposed `pane-size` option,
-   default `latest`. **Unverified ⚠** — the load-bearing prototype question.
+9. **Geometry / pane size** — the §3 problem, solved by **duplicating the
+   `window-size` machinery** (`resize.c:99-460`) one level down: a `pane-size`
+   option (largest/smallest/latest/manual, default `latest`), a
+   `panelinks_calculate_size` mirroring `clients_calculate_size`, a
+   `recalculate_pane_size` mirroring `recalculate_size`, `wp->latest` mirroring
+   `w->latest`, and a second pass in `recalculate_sizes_now`. The one
+   architectural change is decoupling view-rectangle from grid-size in
+   `layout_fix_panes` (§3.2). **The `aggressive-resize` analog** ("only size to
+   windows where this pane is active", mirroring `recalculate_size_skip_client`
+   @`resize.c:336`) is **deferred** to a later refinement. **Verified ✓** the
+   pattern being mirrored; **Unverified ⚠** the prototype.
 10. **Floating-ness per-view** — `PANE_FLOATING` → `PANELINK_FLOATING`. A pane
     may float in one window, tile in another. **Verified ✓** that the flag is
     swapped/toggled per layout (`cmd-swap-pane.c:107-110`).
@@ -437,13 +525,24 @@ winlink pattern."
 5. **Buckets (c)/(d): fan-out loops + signature changes**, the
    `window_pane_is_active_anywhere` helper, the options sub-audit (#5), then
    **drop `wp->window`** and route destroy through `window_pane_remove_ref`.
-6. **Commands + size negotiation** — `link-pane`/`unlink-pane`,
-   `server_link_pane`/`server_unlink_pane`, `kill-pane` refcount cascade, the
-   `pane-size` option (§3). **First behaviour change.** Daily-drive, append
-   findings to §8.
-7. **Polish** — control-mode notifications, new formats
-   (`#{pane_link_count}`, `#{pane_linked}`), man pages.
-8. **Upstream prep** — rebase to ~8 commits, mail tmux-users@, coordinate the
+6. **Size negotiation machinery (still a no-op while count == 1)** — duplicate
+   the `window-size` pattern per §3.2: add the `pane-size` option
+   (`options-table.c`), `wp->latest` + `wp->manual_sx/sy`,
+   `panelinks_calculate_size` (mirror `clients_calculate_size`),
+   `recalculate_pane_size` (mirror `recalculate_size`), and a second pass over
+   panes in `recalculate_sizes_now`. **Decouple `layout_fix_panes`** so it sets
+   the per-view rectangle from the cell but defers grid sizing to the new pass.
+   With one panelink, "latest of one cell" == today's `window_pane_resize`, so
+   **still zero behaviour change** — and now independently bisectable.
+7. **Commands** — `link-pane`/`unlink-pane`,
+   `server_link_pane`/`server_unlink_pane`, `kill-pane` refcount cascade,
+   same-window `-f` guard. **First behaviour change:** panelink count can exceed
+   1, the §3 negotiation and the fan-out loops actually engage. Daily-drive,
+   append findings to §8.
+8. **Polish** — control-mode notifications, new formats
+   (`#{pane_link_count}`, `#{pane_linked}`), `pane-size`/`aggressive-resize`
+   analog refinement, man pages.
+9. **Upstream prep** — rebase to ~8 commits, mail tmux-users@, coordinate the
    iTerm2 UX question separately.
 
 ---
@@ -451,12 +550,16 @@ winlink pattern."
 ## 10. What is verified vs what needs a prototype
 
 **Verified against this tree:** the winlink template (§1), the per-pane/per-view
-field classification (§2), the geometry-derivation mechanism (§3), the audit
+field classification (§2), the geometry-derivation mechanism *and the entire
+`window-size` machinery `pane-size` mirrors* (§3, `resize.c:99-460`), the audit
 counts and buckets (§7), and ambiguities 1–7, 10, 11.
 
-**Needs prototyping / re-grounding:** the `pane-size` negotiation (§3 / amb. 9 —
-the one genuinely hard design problem), `PANE_ZOOMED`'s side (amb. 8), the
+**Needs prototyping / re-grounding:** the `pane-size` *implementation* (§3.2 —
+the pattern is verified, the mirror itself is not yet built), the
+`layout_fix_panes` decoupling (§3.2), `PANE_ZOOMED`'s side (amb. 8), the
 window-scoped options sub-audit (amb. 5), and the current-tree iTerm2
 control-mode check (amb. 12).
 
 Steps 1–3 are safe to start now; nothing in them depends on the open questions.
+Step 6 (size machinery) is also a provable no-op while the panelink count is 1,
+so it can land and be validated before any command turns the feature on.
