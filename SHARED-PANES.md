@@ -6,6 +6,61 @@ lets a single window be referenced from multiple sessions.
 
 Goal: daily use for the author, and an upstream-quality patch series at the end.
 
+---
+
+## Prototype status (working)
+
+A functional prototype is committed on this branch. `link-pane` puts a pane into
+a second window; `unlink-pane [-k]` removes a view. Every step builds clean
+(`-Wall -W -Wshadow -Wmissing-prototypes ...`, zero warnings) and is
+smoke-tested. Commits:
+
+- **Step 1** — `struct panelink`, refcount, tier-1 helpers (dead code).
+- **Step 2** — per-window panelink list maintained in lockstep; destroy via
+  refcount.
+- **Step 3a/3b/3c** — the three per-window pane lists migrated to panelinks:
+  visit stack (`last_panelinks`), z-index (`z_index`), and the positional list
+  (`panes`). `entry`/`sentry`/`zentry` now live on the panelink; `w->panes` is
+  the single positional panelink list (the Step-2 parallel `w->panelinks` was
+  folded into it).
+- **Step 3d** — `layout_fix_panes` selects the per-view cell.
+- **Commands** — `link-pane` / `unlink-pane`.
+- Plus a **pre-existing upstream bugfix**: `layout_assign` flagged tiled panes
+  floating on layout restore.
+
+### Prototype shortcuts (deliberate, deviate from the full design)
+
+These keep the diff tractable and are the known gap to "upstream-quality":
+
+1. **`wp->window` is kept** as a maintained back-pointer (the full design drops
+   it). The ~144 readers therefore resolve to the pane's *home* window, which is
+   why `#{pane_index}` and other per-view formats are wrong for a linked view
+   (needs `cmd_find_best_window_with_pane`, design §8 item 2).
+2. **`w->active` is kept as `struct window_pane *`** (design §4 says
+   `panelink *`). Fine while no pane is linked twice into one window (no `-f`).
+3. **`layout_cell` stays on `window_pane`** for a pane's home window; the
+   per-view cell for a *linked* window lives on the panelink
+   (`pl->layout_cell`), selected in `layout_fix_panes`. The full design moves
+   `layout_cell`→panelink and `lc->wp`→`lc->pl` everywhere; deferred.
+4. **`link-pane` binds the linked cell via `lc->wp = src_wp`** while leaving
+   `src_wp->layout_cell` (home) alone. `unlink-pane` nulls `lc->wp` before
+   freeing the cell so the home layout is not corrupted. **Caveat:** destroying
+   a window that still holds a *linked* view can clobber the home pane's
+   `layout_cell` (the `lc->wp`↔`wp->layout_cell` round-trip is intentionally
+   broken). Unlink before closing such a window. The real fix is shortcut 3.
+
+### Known limitations / still to do
+
+- **`pane-size` negotiation not implemented.** A pane has one grid; whichever
+  window's `layout_fix_panes` ran last sets its size. Two windows of different
+  sizes fight; single-client / one-window-visible is fine. This is the §3
+  `resize.c`-mirror work.
+- **Per-view formats** (`pane_index`, etc.) resolve via the home window
+  (shortcut 1).
+- **Not visually verified.** Behaviour confirmed headlessly (list-panes shows
+  the pane in two windows with a real split layout; unlink/refcount correct). A
+  real attached client has not been driven in this environment.
+
 > **Verification convention.** Every claim about tmux internals carries a
 > `file:line` against **this** tree (tmux master at tag `3.6b`, *including the
 > floating-panes work* — commits `ce24b92`, `572e26d`). A section marked
