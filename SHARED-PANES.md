@@ -106,6 +106,7 @@ at true destroy (refcount zero).
 | `TAILQ_ENTRY sentry` | `tmux.h:1340` | `w->last_panes` (visit stack) | ✓ |
 | `TAILQ_ENTRY zentry` | `tmux.h:1341` | `w->z_index` (floating z-order) | ✓ **new** |
 | `PANE_VISITED` (`0x8`) | `tmux.h:1268` | tracks `last_panes` membership | ✓ |
+| `PANE_ZOOMED` (`0x10`) | `tmux.h:1269` | tracks per-window zoom layout | ✓ |
 | `PANE_FLOATING` (`0x20`) | `tmux.h:1270` | tracks `z_index` / floating layout | ✓ **new** |
 | geometry `xoff/yoff/sx/sy` | `tmux.h:1258-1262` | derived from `layout_cell` — see §3 | ✓ |
 
@@ -117,9 +118,13 @@ at true destroy (refcount zero).
 to swap two floaters (`cmd-swap-pane.c:82-86`). **Verified ✓.** A shared pane
 could float in window A and tile in window B.
 
-**`PANE_ZOOMED` (`0x10`) is an open question** — zoom is conceptually
-per-window-view (the window also carries `WINDOW_ZOOMED`, `tmux.h:1393`). Listed
-in §8 ambiguities, **Unverified ⚠** which side it lands on.
+**`PANE_ZOOMED` (`0x10`) is per-view. Verified ✓** — `window_zoom`
+(`window.c:695-720`) swaps `w->layout_root` ↔ `w->saved_layout_root` and
+rewrites every pane's `layout_cell`/`saved_layout_cell` to show only the zoomed
+pane; `window_unzoom` (@723) restores them. Zoom is therefore a transformation
+of the *window's layout*, which is per-view. Since `layout_cell` /
+`saved_layout_cell` migrate to the panelink, `PANE_ZOOMED` migrates with them as
+`PANELINK_ZOOMED`. A pane can be zoomed in window A and tiled in window B.
 
 ### Transient render scratch (recomputed, no migration needed)
 
@@ -290,7 +295,7 @@ session.
 struct panelink {
     struct window        *window;
     struct window_pane   *pane;
-    int                   flags;        /* PANELINK_VISITED, PANELINK_FLOATING */
+    int                   flags;        /* PANELINK_VISITED/ZOOMED/FLOATING */
 
     /* per-view layout state, migrated off window_pane */
     struct layout_cell   *layout_cell;
@@ -309,8 +314,8 @@ Changes to `struct window_pane` (`tmux.h:1248`):
   (the fan-out: which windows view this pane) + `u_int references`.
 - **Remove** `layout_cell`, `saved_layout_cell` → migrate to `panelink`.
 - **Remove** `entry`, `sentry`, **and `zentry`** → migrate to `panelink`.
-- **Remove** flags `PANE_VISITED` and `PANE_FLOATING` → become `panelink`
-  flags.
+- **Remove** flags `PANE_VISITED`, `PANE_ZOOMED`, and `PANE_FLOATING` → become
+  `panelink` flags (`PANELINK_VISITED/ZOOMED/FLOATING`).
 - **Add** `void *latest` (the last-focused panelink, mirroring `w->latest`,
   `tmux.h:1351`) and `u_int manual_sx/manual_sy` (mirroring `w->manual_sx/sy`,
   `tmux.h:1375-1376`) for the `pane-size` negotiation (§3.2).
@@ -323,7 +328,14 @@ Changes to `struct window_pane` (`tmux.h:1248`):
 Changes to `struct window` (`tmux.h:1349`):
 - `panes` → `panelinks`, `last_panes` → `last_panelinks`,
   `z_index` → `z_index_panelinks` (all TAILQ of `panelink`).
-- `active` stays a `window_pane *`.
+- **`active` becomes `struct panelink *`** (not `window_pane *`). This mirrors
+  the winlink precedent — a session's current window is `s->curw`, a
+  `winlink *` (the join object), not a `window *`. It is also mechanically
+  forced: `window_lost_pane` recovers active via
+  `TAILQ_FIRST(&w->last_panes)` / `TAILQ_PREV(... entry)` (`window.c:815-819`),
+  which after migration yield panelinks. `w->active->pane` reaches the shared
+  state. As a bonus this disambiguates same-window duplicate links (amb. 14):
+  two panelinks of one pane in one window, `active` names exactly one.
 
 Changes to `struct layout_cell` (`tmux.h:1470`):
 - `struct window_pane *wp` → `struct panelink *pl`. `lc->pl->pane` reaches the
@@ -469,9 +481,11 @@ ones surfaced by this pass.
    **Verified ✓** the chain re-points on move.
 6. **Copy-mode state** — shared, on the pane (`wp->modes`). **Verified ✓.**
 7. **respawn-pane** — affects all views (one process). **Verified ✓.**
-8. **`PANE_ZOOMED` per-view or per-pane?** — zoom is conceptually per-window
-   (`WINDOW_ZOOMED` exists at `tmux.h:1393`). Likely per-view → panelink flag.
-   **Unverified ⚠** — needs reading the zoom paths before deciding.
+8. **`PANE_ZOOMED` per-view.** Resolved → `PANELINK_ZOOMED`. **Verified ✓** —
+   `window_zoom`/`window_unzoom` (`window.c:695-746`) implement zoom as a
+   per-window layout transformation (swap `layout_root`, rewrite every pane's
+   `layout_cell`/`saved_layout_cell`), so the flag follows the per-view layout
+   fields onto the panelink. See §2.
 9. **Geometry / pane size** — the §3 problem, solved by **duplicating the
    `window-size` machinery** (`resize.c:99-460`) one level down: a `pane-size`
    option (largest/smallest/latest/manual, default `latest`), a
@@ -492,7 +506,16 @@ ones surfaced by this pass.
     **Unverified ⚠** against the *current* iTerm2 tree (the old audit verified
     an older copy; re-confirm before upstream, not a blocker for local use).
 13. **Detach-pane** — not added; refcount zero = destroy.
-14. **Open by design** — new ambiguities found by daily driving get appended
+14. **`w->active` is a `panelink *`, not a `window_pane *`.** Resolved (§4) by
+    the `s->curw` precedent and forced by `window_lost_pane`. This is the only
+    correction to the previous draft's data model (it claimed "active stays
+    as-is"). **Verified ✓.**
+15. **Same-window duplicate links (`link-pane -f`)** — now *supportable*
+    unambiguously thanks to amb. 14, but exposing the flag in v1 is a product
+    choice. **Decision:** keep the capability, defer the `-f` flag (refuse
+    same-window by default, as `cmd-join-pane.c:92` does). Revisit after
+    bake-in.
+16. **Open by design** — new ambiguities found by daily driving get appended
     here with a status.
 
 ---
@@ -550,15 +573,16 @@ winlink pattern."
 ## 10. What is verified vs what needs a prototype
 
 **Verified against this tree:** the winlink template (§1), the per-pane/per-view
-field classification (§2), the geometry-derivation mechanism *and the entire
-`window-size` machinery `pane-size` mirrors* (§3, `resize.c:99-460`), the audit
-counts and buckets (§7), and ambiguities 1–7, 10, 11.
+field classification including `PANE_ZOOMED` (§2), the geometry-derivation
+mechanism *and the entire `window-size` machinery `pane-size` mirrors*
+(§3, `resize.c:99-460`), the `w->active`-as-`panelink *` correction (§4), the
+audit counts and buckets (§7), and ambiguities 1–8, 10, 11, 13–15.
 
-**Needs prototyping / re-grounding:** the `pane-size` *implementation* (§3.2 —
-the pattern is verified, the mirror itself is not yet built), the
-`layout_fix_panes` decoupling (§3.2), `PANE_ZOOMED`'s side (amb. 8), the
-window-scoped options sub-audit (amb. 5), and the current-tree iTerm2
-control-mode check (amb. 12).
+**Needs prototyping / re-grounding:** the clip/pad **rendering** UX when grid ≠
+cell (§3.3 — the biggest genuine unknown, only answerable by running a shared
+pane at two sizes), the `pane-size` *implementation* + `layout_fix_panes`
+decoupling (§3.2), the window-scoped options sub-audit (amb. 5), and the
+current-tree iTerm2 control-mode check (amb. 12).
 
 Steps 1–3 are safe to start now; nothing in them depends on the open questions.
 Step 6 (size machinery) is also a provable no-op while the panelink count is 1,
