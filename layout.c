@@ -367,7 +367,16 @@ layout_fix_panes(struct window *w, struct window_pane *skip)
 
 	TAILQ_FOREACH(pl, &w->panes, entry) {
 		wp = pl->pane;
-		if ((lc = wp->layout_cell) == NULL || wp == skip)
+		/*
+		 * A pane's geometry comes from its layout cell. For the pane's
+		 * home window that cell is wp->layout_cell; for a pane linked
+		 * into another window the per-view cell lives on the panelink.
+		 */
+		if (pl->window == wp->window)
+			lc = wp->layout_cell;
+		else
+			lc = pl->layout_cell;
+		if (lc == NULL || wp == skip)
 			continue;
 
 		wp->xoff = lc->xoff;
