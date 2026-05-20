@@ -1244,6 +1244,27 @@ struct visible_ranges {
 	u_int			 size;    /* allocated capacity of ranges */
 };
 
+/* Entry on local pane list. A pane may be linked into more than one window. */
+struct panelink {
+	struct window		*window;
+	struct window_pane	*pane;
+
+	int			 flags;
+#define PANELINK_VISITED 0x1
+#define PANELINK_ZOOMED 0x2
+#define PANELINK_FLOATING 0x4
+
+	/* Per-view layout state (migrated off window_pane). */
+	struct layout_cell	*layout_cell;
+	struct layout_cell	*saved_layout_cell;
+
+	TAILQ_ENTRY(panelink)	 entry;		/* in window->panelinks */
+	TAILQ_ENTRY(panelink)	 sentry;	/* in window->last_panelinks */
+	TAILQ_ENTRY(panelink)	 zentry;	/* in window->z_index_panelinks */
+	TAILQ_ENTRY(panelink)	 wentry;	/* in pane->panelinks (fan-out) */
+};
+TAILQ_HEAD(panelinks, panelink);
+
 /* Child window structure. */
 struct window_pane {
 	u_int		 id;
@@ -1366,6 +1387,7 @@ struct window {
 	struct window_panes 	 last_panes;
 	struct window_panes      z_index;
 	struct window_panes	 panes;
+	struct panelinks	 panelinks;
 
 	int			 lastlayout;
 	struct layout_cell	*layout_root;
@@ -1428,27 +1450,6 @@ struct winlink {
 };
 RB_HEAD(winlinks, winlink);
 TAILQ_HEAD(winlink_stack, winlink);
-
-/* Entry on local pane list. A pane may be linked into more than one window. */
-struct panelink {
-	struct window		*window;
-	struct window_pane	*pane;
-
-	int			 flags;
-#define PANELINK_VISITED 0x1
-#define PANELINK_ZOOMED 0x2
-#define PANELINK_FLOATING 0x4
-
-	/* Per-view layout state (migrated off window_pane). */
-	struct layout_cell	*layout_cell;
-	struct layout_cell	*saved_layout_cell;
-
-	TAILQ_ENTRY(panelink)	 entry;		/* in window->panelinks */
-	TAILQ_ENTRY(panelink)	 sentry;	/* in window->last_panelinks */
-	TAILQ_ENTRY(panelink)	 zentry;	/* in window->z_index_panelinks */
-	TAILQ_ENTRY(panelink)	 wentry;	/* in pane->panelinks (fan-out) */
-};
-TAILQ_HEAD(panelinks, panelink);
 
 /* Window size option. */
 #define WINDOW_SIZE_LARGEST 0

@@ -50,6 +50,7 @@ cmd_swap_pane_exec(struct cmd *self, struct cmdq_item *item)
 	struct cmd_find_state	*target = cmdq_get_target(item);
 	struct window		*src_w, *dst_w;
 	struct window_pane	*tmp_wp, *src_wp, *dst_wp;
+	struct panelink		*src_pl, *dst_pl;
 	struct layout_cell	*src_lc, *dst_lc;
 	u_int			 sx, sy, xoff, yoff;
 
@@ -108,6 +109,15 @@ cmd_swap_pane_exec(struct cmd *self, struct cmdq_item *item)
 		src_wp->flags ^= PANE_FLOATING;
 		dst_wp->flags ^= PANE_FLOATING;
 	}
+
+	src_pl = panelink_find_by_pane(&src_w->panelinks, src_wp);
+	dst_pl = panelink_find_by_pane(&dst_w->panelinks, dst_wp);
+	TAILQ_REMOVE(&src_w->panelinks, src_pl, entry);
+	TAILQ_REMOVE(&dst_w->panelinks, dst_pl, entry);
+	TAILQ_INSERT_TAIL(&dst_w->panelinks, src_pl, entry);
+	TAILQ_INSERT_TAIL(&src_w->panelinks, dst_pl, entry);
+	src_pl->window = dst_w;
+	dst_pl->window = src_w;
 
 	src_wp->window = dst_w;
 	options_set_parent(src_wp->options, dst_w->options);

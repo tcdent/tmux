@@ -70,6 +70,7 @@ cmd_join_pane_exec(struct cmd *self, struct cmdq_item *item)
 	struct winlink		*src_wl, *dst_wl;
 	struct window		*src_w, *dst_w;
 	struct window_pane	*src_wp, *dst_wp;
+	struct panelink		*src_pl;
 	char			*cause = NULL;
 	int			 size, dst_idx;
 	int			 flags;
@@ -145,10 +146,14 @@ cmd_join_pane_exec(struct cmd *self, struct cmdq_item *item)
 
 	server_client_remove_pane(src_wp);
 	window_lost_pane(src_w, src_wp);
+	src_pl = panelink_find_by_pane(&src_w->panelinks, src_wp);
 	TAILQ_REMOVE(&src_w->panes, src_wp, entry);
 	TAILQ_REMOVE(&src_w->z_index, src_wp, zentry);
+	TAILQ_REMOVE(&src_w->panelinks, src_pl, entry);
 
 	src_wp->window = dst_w;
+	TAILQ_INSERT_TAIL(&dst_w->panelinks, src_pl, entry);
+	src_pl->window = dst_w;
 	options_set_parent(src_wp->options, dst_w->options);
 	src_wp->flags |= (PANE_STYLECHANGED|PANE_THEMECHANGED);
 	if (flags & SPAWN_BEFORE) {
