@@ -2156,9 +2156,13 @@ format_cb_pane_id(struct format_tree *ft)
 static void *
 format_cb_pane_index(struct format_tree *ft)
 {
-	u_int	idx;
+	struct window	*w;
+	u_int		 idx;
 
-	if (ft->wp != NULL && window_pane_index(ft->wp, &idx) == 0)
+	if (ft->wp == NULL)
+		return (NULL);
+	w = (ft->w != NULL) ? ft->w : ft->wp->window;
+	if (window_pane_index(w, ft->wp, &idx) == 0)
 		return (format_printf("%u", idx));
 	return (NULL);
 }

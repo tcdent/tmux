@@ -259,7 +259,7 @@ spawn_pane(struct spawn_context *sc, char **cause)
 	hlimit = options_get_number(s->options, "history-limit");
 	if (sc->flags & SPAWN_RESPAWN) {
 		if (sc->wp0->fd != -1 && (~sc->flags & SPAWN_KILL)) {
-			window_pane_index(sc->wp0, &idx);
+			window_pane_index(sc->wl->window, sc->wp0, &idx);
 			xasprintf(cause, "pane %s:%d.%u still active",
 			    s->name, sc->wl->idx, idx);
 			free(cwd);

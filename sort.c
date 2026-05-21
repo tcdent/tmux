@@ -204,8 +204,8 @@ sort_pane_cmp(const void *a0, const void *b0)
 		result = a->sx * a->sy - b->sx * b->sy;
 		break;
 	case SORT_INDEX:
-		window_pane_index(a, &ai);
-		window_pane_index(b, &bi);
+		window_pane_index(a->window, a, &ai);
+		window_pane_index(b->window, b, &bi);
 		result = ai - bi;
 		break;
 	case SORT_NAME:

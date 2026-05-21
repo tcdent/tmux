@@ -202,7 +202,7 @@ window_tree_build_pane(struct session *s, struct winlink *wl,
 	u_int				 idx;
 	struct format_tree		*ft;
 
-	window_pane_index(wp, &idx);
+	window_pane_index(wl->window, wp, &idx);
 
 	item = window_tree_add_item(data);
 	item->type = WINDOW_TREE_PANE;
@@ -1303,7 +1303,8 @@ again:
 			xasprintf(&prompt, "Kill window %u? ", nwl->idx);
 			break;
 		case WINDOW_TREE_PANE:
-			if (nwp == NULL || window_pane_index(nwp, &idx) != 0)
+			if (nwp == NULL ||
+			    window_pane_index(nwp->window, nwp, &idx) != 0)
 				break;
 			xasprintf(&prompt, "Kill pane %u? ", idx);
 			break;

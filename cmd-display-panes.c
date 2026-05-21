@@ -118,7 +118,7 @@ cmd_display_panes_draw_pane(struct screen_redraw_ctx *ctx,
 	px = sx / 2;
 	py = sy / 2;
 
-	if (window_pane_index(wp, &pane) != 0)
+	if (window_pane_index(w, wp, &pane) != 0)
 		fatalx("index not found");
 	len = xsnprintf(buf, sizeof buf, "%u", pane);
 

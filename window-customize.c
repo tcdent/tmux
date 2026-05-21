@@ -192,7 +192,7 @@ window_customize_scope_text(enum window_customize_scope scope,
 
 	switch (scope) {
 	case WINDOW_CUSTOMIZE_PANE:
-		window_pane_index(fs->wp, &idx);
+		window_pane_index(fs->w, fs->wp, &idx);
 		xasprintf(&s, "pane %u", idx);
 		break;
 	case WINDOW_CUSTOMIZE_SESSION:

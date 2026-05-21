@@ -21,11 +21,19 @@ $TMUX link-pane -d -s "$P" -t:1 || exit 1
 [ "$($TMUX lsp -a -F'#{pane_id}'|grep -c "^$P\$")" = 2 ] || exit 1
 [ "$($TMUX lsp -t:1|wc -l)" -eq 2 ] || exit 1
 
+# pane_index is per-view: index 0 in its home window, index 1 in window 1.
+[ "$($TMUX display -t:0."$P" -p '#{pane_index}')" = 0 ] || exit 1
+[ "$($TMUX display -t:1."$P" -p '#{pane_index}')" = 1 ] || exit 1
+
+# Targeting the linked view by pane id within its window resolves there.
+[ "$($TMUX display -t:1."$P" -p '@#{window_id}')" \
+    = "$($TMUX display -t:1 -p '@#{window_id}')" ] || exit 1
+
 # Unlinking the home-window view is refused.
 $TMUX unlink-pane -t:0 2>/dev/null && exit 1
 
-# Unlinking the linked view leaves the pane alive in window 0.
-$TMUX unlink-pane -t:1.1 || exit 1
+# Unlinking the linked view (by pane id) leaves the pane alive in window 0.
+$TMUX unlink-pane -t:1."$P" || exit 1
 [ "$($TMUX lsp -a -F'#{pane_id}'|grep -c "^$P\$")" = 1 ] || exit 1
 [ "$($TMUX lsp -t:1|wc -l)" -eq 1 ] || exit 1
 

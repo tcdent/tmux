@@ -990,10 +990,9 @@ window_pane_previous_by_number(struct window *w, struct window_pane *wp,
 }
 
 int
-window_pane_index(struct window_pane *wp, u_int *i)
+window_pane_index(struct window *w, struct window_pane *wp, u_int *i)
 {
 	struct panelink		*pl;
-	struct window		*w = wp->window;
 
 	*i = options_get_number(w->options, "pane-base-index");
 	TAILQ_FOREACH(pl, &w->panes, entry) {

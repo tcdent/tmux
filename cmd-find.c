@@ -576,7 +576,7 @@ cmd_find_get_pane_with_window(struct cmd_find_state *fs, const char *pane)
 		fs->wp = window_pane_find_by_id_str(pane);
 		if (fs->wp == NULL)
 			return (-1);
-		if (fs->wp->window != fs->w)
+		if (!window_has_pane(fs->w, fs->wp))
 			return (-1);
 		return (0);
 	}

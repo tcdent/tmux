@@ -70,7 +70,7 @@ screen_redraw_border_set(struct window *w, struct window_pane *wp,
 			break;
 		}
 		gc->attr &= ~GRID_ATTR_CHARSET;
-		if (wp != NULL && window_pane_index(wp, &idx) == 0)
+		if (wp != NULL && window_pane_index(w, wp, &idx) == 0)
 			utf8_set(&gc->data, '0' + (idx % 10));
 		else
 			utf8_set(&gc->data, '*');
