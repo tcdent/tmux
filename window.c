@@ -777,7 +777,6 @@ int
 window_zoom(struct window_pane *wp)
 {
 	struct window		*w = wp->window;
-	struct window_pane	*wp1;
 	struct panelink		*pl;
 
 	if (w->flags & WINDOW_ZOOMED)
@@ -790,9 +789,8 @@ window_zoom(struct window_pane *wp)
 	wp->flags |= PANE_ZOOMED;
 
 	TAILQ_FOREACH(pl, &w->panes, entry) {
-		wp1 = pl->pane;
-		wp1->saved_layout_cell = wp1->layout_cell;
-		wp1->layout_cell = NULL;
+		pl->saved_layout_cell = pl->layout_cell;
+		pl->layout_cell = NULL;
 	}
 
 	w->saved_layout_root = w->layout_root;
@@ -819,8 +817,8 @@ window_unzoom(struct window *w, int notify)
 
 	TAILQ_FOREACH(pl, &w->panes, entry) {
 		wp = pl->pane;
-		wp->layout_cell = wp->saved_layout_cell;
-		wp->saved_layout_cell = NULL;
+		pl->layout_cell = pl->saved_layout_cell;
+		pl->saved_layout_cell = NULL;
 		wp->flags &= ~PANE_ZOOMED;
 	}
 	layout_fix_panes(w, NULL);

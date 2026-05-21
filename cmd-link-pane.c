@@ -112,9 +112,9 @@ cmd_link_pane_exec(struct cmd *self, struct cmdq_item *item)
 	}
 
 	/*
-	 * Bind the new cell to the source pane as a second view. The pane's
-	 * home layout cell (src_wp->layout_cell) is left untouched; the per-view
-	 * cell lives on the panelink.
+	 * Bind the new cell to the source pane as a second view. The cell
+	 * points at this view's panelink (lc->pl); the pane's home layout cell
+	 * is a different cell on a different panelink and is left untouched.
 	 */
 	pl = panelink_add(&dst_w->panes);
 	pl->window = dst_w;
@@ -123,7 +123,7 @@ cmd_link_pane_exec(struct cmd *self, struct cmdq_item *item)
 
 	lc->type = LAYOUT_WINDOWPANE;
 	TAILQ_INIT(&lc->cells);
-	lc->wp = src_wp;
+	lc->pl = pl;
 	pl->layout_cell = lc;
 
 	layout_fix_panes(dst_w, NULL);
@@ -174,12 +174,11 @@ cmd_unlink_pane_exec(struct cmd *self, struct cmdq_item *item)
 	window_lost_pane(w, wp);
 
 	/*
-	 * Destroy this view's layout cell. Detach the pane from the cell first
-	 * (lc->wp) so freeing the linked cell does not clear the pane's home
-	 * layout cell.
+	 * Destroy this view's layout cell. The cell points at this panelink
+	 * (lc->pl), so freeing it clears only this view's cell, never the pane's
+	 * home layout cell (a different cell on a different panelink).
 	 */
 	if (pl->layout_cell != NULL) {
-		pl->layout_cell->wp = NULL;
 		layout_destroy_cell(w, pl->layout_cell, &w->layout_root);
 		pl->layout_cell = NULL;
 		if (w->layout_root != NULL) {

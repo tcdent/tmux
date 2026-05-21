@@ -48,6 +48,19 @@ static void	layout_resize_child_cells(struct window *,
 		    struct layout_cell *);
 void		layout_redistribute_cells(struct window *, struct layout_cell *,
 		    enum layout_type);
+static struct layout_cell *layout_get_cell(struct window_pane *);
+
+/* Get a pane's layout cell in its home window. */
+static struct layout_cell *
+layout_get_cell(struct window_pane *wp)
+{
+	struct panelink	*pl;
+
+	pl = panelink_find_by_pane(&wp->window->panes, wp);
+	if (pl == NULL)
+		return (NULL);
+	return (pl->layout_cell);
+}
 
 /* Create a new layout cell. */
 struct layout_cell *
@@ -67,7 +80,7 @@ layout_create_cell(struct layout_cell *lcparent)
 	lc->xoff = INT_MAX;
 	lc->yoff = INT_MAX;
 
-	lc->wp = NULL;
+	lc->pl = NULL;
 
 	return (lc);
 }
@@ -101,9 +114,9 @@ layout_free_cell(struct layout_cell *lc)
 		}
 		break;
 	case LAYOUT_WINDOWPANE:
-		if (lc->wp != NULL) {
-			lc->wp->layout_cell->parent = NULL;
-			lc->wp->layout_cell = NULL;
+		if (lc->pl != NULL) {
+			lc->pl->layout_cell->parent = NULL;
+			lc->pl->layout_cell = NULL;
 		}
 		break;
 	}
@@ -139,7 +152,7 @@ layout_print_cell(struct layout_cell *lc, const char *hdr, u_int n)
 		break;
 	}
 	log_debug("%s:%*s%p type %s [parent %p] wp=%p [%d,%d %ux%u]", hdr, n,
-	    " ", lc, type, lc->parent, lc->wp, lc->xoff, lc->yoff, lc->sx,
+	    " ", lc, type, lc->parent, lc->pl, lc->xoff, lc->yoff, lc->sx,
 	    lc->sy);
 	switch (lc->type) {
 	case LAYOUT_LEFTRIGHT:
@@ -210,12 +223,16 @@ layout_set_size(struct layout_cell *lc, u_int sx, u_int sy, int xoff, int yoff)
 void
 layout_make_leaf(struct layout_cell *lc, struct window_pane *wp)
 {
+	struct panelink	*pl;
+
 	lc->type = LAYOUT_WINDOWPANE;
 
 	TAILQ_INIT(&lc->cells);
 
-	wp->layout_cell = lc;
-	lc->wp = wp;
+	pl = panelink_find_by_pane(&wp->window->panes, wp);
+	lc->pl = pl;
+	if (pl != NULL)
+		pl->layout_cell = lc;
 }
 
 /* Make a cell a node cell. */
@@ -228,9 +245,9 @@ layout_make_node(struct layout_cell *lc, enum layout_type type)
 
 	TAILQ_INIT(&lc->cells);
 
-	if (lc->wp != NULL)
-		lc->wp->layout_cell = NULL;
-	lc->wp = NULL;
+	if (lc->pl != NULL)
+		lc->pl->layout_cell = NULL;
+	lc->pl = NULL;
 }
 
 /* Fix Z indexes. */
@@ -245,7 +262,7 @@ layout_fix_zindexes(struct window *w, struct layout_cell *lc)
 
 	switch (lc->type) {
 	case LAYOUT_WINDOWPANE:
-		pl = panelink_find_by_pane(&w->panes, lc->wp);
+		pl = lc->pl;
 		if (pl != NULL)
 			TAILQ_INSERT_TAIL(&w->z_index, pl, zentry);
 		break;
@@ -367,16 +384,7 @@ layout_fix_panes(struct window *w, struct window_pane *skip)
 
 	TAILQ_FOREACH(pl, &w->panes, entry) {
 		wp = pl->pane;
-		/*
-		 * A pane's geometry comes from its layout cell. For the pane's
-		 * home window that cell is wp->layout_cell; for a pane linked
-		 * into another window the per-view cell lives on the panelink.
-		 */
-		if (pl->window == wp->window)
-			lc = wp->layout_cell;
-		else
-			lc = pl->layout_cell;
-		if (lc == NULL || wp == skip)
+		if ((lc = pl->layout_cell) == NULL || wp == skip)
 			continue;
 
 		wp->xoff = lc->xoff;
@@ -554,7 +562,7 @@ layout_destroy_cell(struct window *w, struct layout_cell *lc,
 	 */
 	lcparent = lc->parent;
 	if (lcparent == NULL) {
-		if (lc->wp != NULL && ~lc->wp->flags & PANE_FLOATING)
+		if (lc->pl != NULL && ~lc->pl->pane->flags & PANE_FLOATING)
 			*lcroot = NULL;
 		layout_free_cell(lc);
 		return;
@@ -680,7 +688,7 @@ layout_resize_pane_to(struct window_pane *wp, enum layout_type type,
 	struct layout_cell     *lc, *lcparent;
 	int			change, size;
 
-	lc = wp->layout_cell;
+	lc = layout_get_cell(wp);
 
 	/* Find next parent of the same type. */
 	lcparent = lc->parent;
@@ -740,7 +748,7 @@ layout_resize_pane(struct window_pane *wp, enum layout_type type, int change,
 {
 	struct layout_cell	*lc, *lcparent;
 
-	lc = wp->layout_cell;
+	lc = layout_get_cell(wp);
 
 	/* Find next parent of the same type. */
 	lcparent = lc->parent;
@@ -1012,7 +1020,7 @@ layout_split_pane(struct window_pane *wp, enum layout_type type, int size,
 	if (full_size)
 		lc = wp->window->layout_root;
 	else
-		lc = wp->layout_cell;
+		lc = layout_get_cell(wp);
 	status = options_get_number(wp->window->options, "pane-border-status");
 	scrollbars = options_get_number(wp->window->options, "pane-scrollbars");
 
@@ -1173,13 +1181,14 @@ layout_split_pane(struct window_pane *wp, enum layout_type type, int size,
 void
 layout_close_pane(struct window_pane *wp)
 {
-	struct window	*w = wp->window;
+	struct window		*w = wp->window;
+	struct layout_cell	*lc;
 
-	if (wp->layout_cell == NULL)
+	if ((lc = layout_get_cell(wp)) == NULL)
 		return;
 
 	/* Remove the cell. */
-	layout_destroy_cell(w, wp->layout_cell, &w->layout_root);
+	layout_destroy_cell(w, lc, &w->layout_root);
 
 	/* Fix pane offsets and sizes. */
 	if (w->layout_root != NULL) {
@@ -1254,10 +1263,12 @@ layout_spread_cell(struct window *w, struct layout_cell *parent)
 void
 layout_spread_out(struct window_pane *wp)
 {
-	struct layout_cell	*parent;
+	struct layout_cell	*parent, *lc;
 	struct window		*w = wp->window;
 
-	parent = wp->layout_cell->parent;
+	if ((lc = layout_get_cell(wp)) == NULL)
+		return;
+	parent = lc->parent;
 	if (parent == NULL)
 		return;
 

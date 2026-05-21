@@ -107,12 +107,12 @@ cmd_swap_pane_exec(struct cmd *self, struct cmdq_item *item)
 	else
 		TAILQ_INSERT_AFTER(&dst_w->panes, tmp_pl, src_pl, entry);
 
-	src_lc = src_wp->layout_cell;
-	dst_lc = dst_wp->layout_cell;
-	src_lc->wp = dst_wp;
-	dst_wp->layout_cell = src_lc;
-	dst_lc->wp = src_wp;
-	src_wp->layout_cell = dst_lc;
+	src_lc = src_pl->layout_cell;
+	dst_lc = dst_pl->layout_cell;
+	src_lc->pl = dst_pl;
+	dst_pl->layout_cell = src_lc;
+	dst_lc->pl = src_pl;
+	src_pl->layout_cell = dst_lc;
 	if ((src_wp->flags ^ dst_wp->flags) & PANE_FLOATING) {
 		src_wp->flags ^= PANE_FLOATING;
 		dst_wp->flags ^= PANE_FLOATING;

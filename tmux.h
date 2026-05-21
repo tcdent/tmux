@@ -1275,9 +1275,6 @@ struct window_pane {
 	TAILQ_HEAD(, panelink) panelinks;
 	struct options	*options;
 
-	struct layout_cell *layout_cell;
-	struct layout_cell *saved_layout_cell;
-
 	u_int		 sx;
 	u_int		 sy;
 
@@ -1497,7 +1494,7 @@ struct layout_cell {
 	int		 xoff;
 	int		 yoff;
 
-	struct window_pane *wp;
+	struct panelink	*pl;
 	struct layout_cells cells;
 
 	TAILQ_ENTRY(layout_cell) entry;

@@ -61,7 +61,7 @@ cmd_rotate_window_exec(struct cmd *self, struct cmdq_item *item)
 		TAILQ_INSERT_HEAD(&w->panes, pl, entry);
 
 		wp = pl->pane;
-		lc = wp->layout_cell;
+		lc = pl->layout_cell;
 		xoff = wp->xoff; yoff = wp->yoff;
 		sx = wp->sx; sy = wp->sy;
 		TAILQ_FOREACH(pl, &w->panes, entry) {
@@ -69,15 +69,15 @@ cmd_rotate_window_exec(struct cmd *self, struct cmdq_item *item)
 			if ((pl2 = TAILQ_NEXT(pl, entry)) == NULL)
 				break;
 			wp2 = pl2->pane;
-			wp->layout_cell = wp2->layout_cell;
-			if (wp->layout_cell != NULL)
-				wp->layout_cell->wp = wp;
+			pl->layout_cell = pl2->layout_cell;
+			if (pl->layout_cell != NULL)
+				pl->layout_cell->pl = pl;
 			wp->xoff = wp2->xoff; wp->yoff = wp2->yoff;
 			window_pane_resize(wp, wp2->sx, wp2->sy);
 		}
-		wp->layout_cell = lc;
-		if (wp->layout_cell != NULL)
-			wp->layout_cell->wp = wp;
+		pl->layout_cell = lc;
+		if (pl->layout_cell != NULL)
+			pl->layout_cell->pl = pl;
 		wp->xoff = xoff; wp->yoff = yoff;
 		window_pane_resize(wp, sx, sy);
 
@@ -92,7 +92,7 @@ cmd_rotate_window_exec(struct cmd *self, struct cmdq_item *item)
 		TAILQ_INSERT_TAIL(&w->panes, pl, entry);
 
 		wp = pl->pane;
-		lc = wp->layout_cell;
+		lc = pl->layout_cell;
 		xoff = wp->xoff; yoff = wp->yoff;
 		sx = wp->sx; sy = wp->sy;
 		TAILQ_FOREACH_REVERSE(pl, &w->panes, panelinks, entry) {
@@ -100,15 +100,15 @@ cmd_rotate_window_exec(struct cmd *self, struct cmdq_item *item)
 			if ((pl2 = TAILQ_PREV(pl, panelinks, entry)) == NULL)
 				break;
 			wp2 = pl2->pane;
-			wp->layout_cell = wp2->layout_cell;
-			if (wp->layout_cell != NULL)
-				wp->layout_cell->wp = wp;
+			pl->layout_cell = pl2->layout_cell;
+			if (pl->layout_cell != NULL)
+				pl->layout_cell->pl = pl;
 			wp->xoff = wp2->xoff; wp->yoff = wp2->yoff;
 			window_pane_resize(wp, wp2->sx, wp2->sy);
 		}
-		wp->layout_cell = lc;
-		if (wp->layout_cell != NULL)
-			wp->layout_cell->wp = wp;
+		pl->layout_cell = lc;
+		if (pl->layout_cell != NULL)
+			pl->layout_cell->pl = pl;
 		wp->xoff = xoff; wp->yoff = yoff;
 		window_pane_resize(wp, sx, sy);
 

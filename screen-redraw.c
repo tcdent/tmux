@@ -108,12 +108,12 @@ screen_redraw_two_panes(struct window *w, enum layout_type *type)
 
 	TAILQ_FOREACH(pl, &w->panes, entry) {
 		wp = pl->pane;
-		if (wp->flags & PANE_FLOATING || wp->layout_cell == NULL)
+		if (wp->flags & PANE_FLOATING || pl->layout_cell == NULL)
 			continue;
 		count++;
-		if (count > 2 || wp->layout_cell->parent == NULL)
+		if (count > 2 || pl->layout_cell->parent == NULL)
 			return (0);
-		*type = wp->layout_cell->parent->type;
+		*type = pl->layout_cell->parent->type;
 	}
 	if (count <= 1)
 		return (0);

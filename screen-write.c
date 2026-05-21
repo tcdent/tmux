@@ -132,6 +132,7 @@ static int
 screen_write_set_client_cb(struct tty_ctx *ttyctx, struct client *c)
 {
 	struct window_pane	*wp = ttyctx->arg;
+	struct panelink		*pl;
 
 	if (ttyctx->allow_invisible_panes) {
 		if (session_has(c->session, wp->window))
@@ -141,7 +142,8 @@ screen_write_set_client_cb(struct tty_ctx *ttyctx, struct client *c)
 
 	if (c->session->curw->window != wp->window)
 		return (0);
-	if (wp->layout_cell == NULL)
+	pl = panelink_find_by_pane(&wp->window->panes, wp);
+	if (pl == NULL || pl->layout_cell == NULL)
 		return (0);
 
 	if (wp->flags & (PANE_REDRAW|PANE_DROP))

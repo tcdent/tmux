@@ -78,7 +78,7 @@ layout_dump(struct window *w, struct layout_cell *root)
 			strlcat(layout, "<", sizeof layout);
 			bracket = 1;
 		}
-		if (layout_append(wp->layout_cell, layout, sizeof layout) != 0)
+		if (layout_append(pl->layout_cell, layout, sizeof layout) != 0)
 			return (NULL);
 		strlcat(layout, ",", sizeof layout);
 	}
@@ -102,9 +102,9 @@ layout_append(struct layout_cell *lc, char *buf, size_t len)
 		return (-1);
 	if (lc == NULL)
 		return (0);
-	if (lc->wp != NULL) {
+	if (lc->pl != NULL) {
 		tmplen = xsnprintf(tmp, sizeof tmp, "%ux%u,%d,%d,%u",
-		    lc->sx, lc->sy, lc->xoff, lc->yoff, lc->wp->id);
+		    lc->sx, lc->sy, lc->xoff, lc->yoff, lc->pl->pane->id);
 	} else {
 		tmplen = xsnprintf(tmp, sizeof tmp, "%ux%u,%d,%d",
 		    lc->sx, lc->sy, lc->xoff, lc->yoff);
