@@ -38,23 +38,24 @@ These keep the diff tractable and are the known gap to "upstream-quality":
    (needs `cmd_find_best_window_with_pane`, design §8 item 2).
 2. **`w->active` is kept as `struct window_pane *`** (design §4 says
    `panelink *`). Fine while no pane is linked twice into one window (no `-f`).
-3. **`layout_cell` stays on `window_pane`** for a pane's home window; the
-   per-view cell for a *linked* window lives on the panelink
-   (`pl->layout_cell`), selected in `layout_fix_panes`. The full design moves
-   `layout_cell`→panelink and `lc->wp`→`lc->pl` everywhere; deferred.
-4. **`link-pane` binds the linked cell via `lc->wp = src_wp`** while leaving
-   `src_wp->layout_cell` (home) alone. `unlink-pane` nulls `lc->wp` before
-   freeing the cell so the home layout is not corrupted. **Caveat:** destroying
-   a window that still holds a *linked* view can clobber the home pane's
-   `layout_cell` (the `lc->wp`↔`wp->layout_cell` round-trip is intentionally
-   broken). Unlink before closing such a window. The real fix is shortcut 3.
+
+   *(Shortcuts 3 and 4 below are now RESOLVED — `layout_cell` was fully migrated
+   onto the panelink, see the "layout cells onto the panelink" commit.)*
+
+3. ~~`layout_cell` stays on `window_pane`~~ **Done.** `layout_cell` and
+   `saved_layout_cell` now live on the panelink; `layout_cell.wp` became
+   `layout_cell.pl`. `layout_fix_panes` uses `pl->layout_cell` uniformly.
+4. ~~`link-pane` binds the linked cell via `lc->wp`~~ **Done.** `link-pane` now
+   binds `lc->pl` to the linked view's panelink; freeing a linked cell clears
+   only that view's cell. Destroying a window that holds a linked view no
+   longer corrupts the home pane (verified).
 
 ### Known limitations / still to do
 
 - **`pane-size` negotiation not implemented.** A pane has one grid; whichever
   window's `layout_fix_panes` ran last sets its size. Two windows of different
   sizes fight; single-client / one-window-visible is fine. This is the §3
-  `resize.c`-mirror work.
+  `resize.c`-mirror work. (Now unblocked: every panelink carries its own cell.)
 - **Per-view formats** (`pane_index`, etc.) resolve via the home window
   (shortcut 1).
 - **Not visually verified.** Behaviour confirmed headlessly (list-panes shows
