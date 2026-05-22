@@ -416,6 +416,92 @@ recalculate_size(struct window *w, int now)
 	}
 }
 
+/*
+ * Recalculate the size of a pane. A pane shown in more than one window has a
+ * single grid; its size is chosen from the cells it occupies across those
+ * windows according to the 'pane-size' option, mirroring 'window-size'.
+ */
+void
+recalculate_pane_size(struct window_pane *wp)
+{
+	struct panelink	*pl, *latest;
+	struct layout_cell *lc;
+	u_int		 sx, sy, n;
+	int		 type;
+
+	n = 0;
+	TAILQ_FOREACH(pl, &wp->panelinks, wentry)
+		n++;
+	if (n == 0)
+		return;
+
+	type = options_get_number(wp->options, "pane-size");
+
+	if (type == WINDOW_SIZE_MANUAL) {
+		if (wp->manual_sx == 0 || wp->manual_sy == 0)
+			return;
+		sx = wp->manual_sx;
+		sy = wp->manual_sy;
+		goto resize;
+	}
+
+	/*
+	 * For latest, use the most recently viewed window's cell; if that is no
+	 * longer valid fall back to the first (home) view.
+	 */
+	if (type == WINDOW_SIZE_LATEST) {
+		latest = NULL;
+		TAILQ_FOREACH(pl, &wp->panelinks, wentry) {
+			if (pl == wp->latest) {
+				latest = pl;
+				break;
+			}
+		}
+		if (latest == NULL)
+			latest = TAILQ_FIRST(&wp->panelinks);
+		if (latest != NULL && latest->layout_cell != NULL) {
+			sx = latest->layout_cell->sx;
+			sy = latest->layout_cell->sy;
+			goto resize;
+		}
+		return;
+	}
+
+	if (type == WINDOW_SIZE_LARGEST) {
+		sx = sy = 0;
+		TAILQ_FOREACH(pl, &wp->panelinks, wentry) {
+			if ((lc = pl->layout_cell) == NULL)
+				continue;
+			if (lc->sx > sx)
+				sx = lc->sx;
+			if (lc->sy > sy)
+				sy = lc->sy;
+		}
+		if (sx == 0 || sy == 0)
+			return;
+	} else {
+		sx = sy = UINT_MAX;
+		TAILQ_FOREACH(pl, &wp->panelinks, wentry) {
+			if ((lc = pl->layout_cell) == NULL)
+				continue;
+			if (lc->sx < sx)
+				sx = lc->sx;
+			if (lc->sy < sy)
+				sy = lc->sy;
+		}
+		if (sx == UINT_MAX || sy == UINT_MAX)
+			return;
+	}
+
+resize:
+	if (sx < 1)
+		sx = 1;
+	if (sy < 1)
+		sy = 1;
+	log_debug("%s: %%%u to %ux%u", __func__, wp->id, sx, sy);
+	window_pane_resize(wp, sx, sy);
+}
+
 void
 recalculate_sizes(void)
 {
@@ -425,9 +511,10 @@ recalculate_sizes(void)
 void
 recalculate_sizes_now(int now)
 {
-	struct session	*s;
-	struct client	*c;
-	struct window	*w;
+	struct session		*s;
+	struct client		*c;
+	struct window		*w;
+	struct window_pane	*wp;
 
 	/*
 	 * Clear attached count and update saved status line information for
@@ -457,4 +544,11 @@ recalculate_sizes_now(int now)
 	/* Walk each window and adjust the size. */
 	RB_FOREACH(w, windows, &windows)
 		recalculate_size(w, now);
+
+	/*
+	 * Now the windows (and so their layout cells) are sized, negotiate the
+	 * size of each pane that is shown in more than one window.
+	 */
+	RB_FOREACH(wp, window_pane_tree, &all_window_panes)
+		recalculate_pane_size(wp);
 }

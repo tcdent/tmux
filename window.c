@@ -289,7 +289,16 @@ panelink_remove(struct panelinks *ppl, struct panelink *pl)
 	struct window_pane	*wp = pl->pane;
 
 	if (wp != NULL) {
+		if (wp->latest == pl)
+			wp->latest = NULL;
 		TAILQ_REMOVE(&wp->panelinks, pl, wentry);
+		/*
+		 * If this was the pane's home window and the pane survives in
+		 * another window, move the home pointer there so it does not
+		 * dangle when the old home window is destroyed.
+		 */
+		if (wp->window == pl->window && !TAILQ_EMPTY(&wp->panelinks))
+			wp->window = TAILQ_FIRST(&wp->panelinks)->window;
 		window_pane_remove_ref(wp, __func__);
 	}
 
@@ -866,6 +875,7 @@ window_add_pane(struct window *w, struct window_pane *other, u_int hlimit,
 	pl = panelink_add(&w->panes);
 	pl->window = w;
 	panelink_set_pane(pl, wp);
+	wp->latest = pl;
 	TAILQ_REMOVE(&w->panes, pl, entry);
 
 	if (TAILQ_EMPTY(&w->panes)) {

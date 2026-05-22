@@ -1412,6 +1412,17 @@ const struct options_table_entry options_table[] = {
 	  .text = "Pane scrollbar position."
 	},
 
+	{ .name = "pane-size",
+	  .type = OPTIONS_TABLE_CHOICE,
+	  .scope = OPTIONS_TABLE_WINDOW|OPTIONS_TABLE_PANE,
+	  .choices = options_table_window_size_list,
+	  .default_num = WINDOW_SIZE_LATEST,
+	  .text = "How the size of a pane shown in more than one window is "
+		  "calculated. 'latest' uses the size in the most recently used "
+		  "window, 'largest' the largest window, 'smallest' the smallest "
+		  "window and 'manual' a size set by the 'resize-pane' command."
+	},
+
 	{ .name = "popup-style",
 	  .type = OPTIONS_TABLE_STRING,
 	  .scope = OPTIONS_TABLE_WINDOW,

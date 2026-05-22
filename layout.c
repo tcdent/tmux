@@ -387,6 +387,15 @@ layout_fix_panes(struct window *w, struct window_pane *skip)
 		if ((lc = pl->layout_cell) == NULL || wp == skip)
 			continue;
 
+		/*
+		 * A pane shown in more than one window has a single size and
+		 * offset; only its most recently viewed window controls them
+		 * (mirroring window-size 'latest'). recalculate_pane_size
+		 * applies the pane-size option across all its windows.
+		 */
+		if (wp->latest != NULL && wp->latest != pl)
+			continue;
+
 		wp->xoff = lc->xoff;
 		wp->yoff = lc->yoff;
 		sx = lc->sx;

@@ -477,6 +477,7 @@ int
 session_set_current(struct session *s, struct winlink *wl)
 {
 	struct winlink	*old = s->curw;
+	struct panelink	*pl;
 
 	if (wl == NULL)
 		return (-1);
@@ -486,6 +487,14 @@ session_set_current(struct session *s, struct winlink *wl)
 	winlink_stack_remove(&s->lastw, wl);
 	winlink_stack_push(&s->lastw, s->curw);
 	s->curw = wl;
+
+	/*
+	 * The panes shown in the now-current window have it as their most
+	 * recently viewed window; this controls the size of any pane that is
+	 * shared with another window (see recalculate_pane_size).
+	 */
+	TAILQ_FOREACH(pl, &wl->window->panes, entry)
+		pl->pane->latest = pl;
 	if (options_get_number(global_options, "focus-events")) {
 		if (old != NULL)
 			window_update_focus(old->window);

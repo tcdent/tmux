@@ -1273,6 +1273,9 @@ struct window_pane {
 	struct window	*window;
 	u_int		 references;
 	TAILQ_HEAD(, panelink) panelinks;
+	void		*latest;
+	u_int		 manual_sx;
+	u_int		 manual_sy;
 	struct options	*options;
 
 	u_int		 sx;
@@ -3099,6 +3102,7 @@ void	 server_status_window(struct window *);
 void	 server_lock(void);
 void	 server_lock_session(struct session *);
 void	 server_lock_client(struct client *);
+void	 server_unlink_pane(struct window *, struct panelink *);
 void	 server_kill_pane(struct window_pane *);
 void	 server_kill_window(struct window *, int);
 void	 server_renumber_session(struct session *);
@@ -3145,6 +3149,7 @@ void	 resize_window(struct window *, u_int, u_int, int, int);
 void	 default_window_size(struct client *, struct session *, struct window *,
 	     u_int *, u_int *, u_int *, u_int *, int);
 void	 recalculate_size(struct window *, int);
+void	 recalculate_pane_size(struct window_pane *);
 void	 recalculate_sizes(void);
 void	 recalculate_sizes_now(int);
 

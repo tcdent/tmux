@@ -169,27 +169,7 @@ cmd_unlink_pane_exec(struct cmd *self, struct cmdq_item *item)
 		return (CMD_RETURN_ERROR);
 	}
 
-	server_unzoom_window(w);
-	server_client_remove_pane(wp);
-	window_lost_pane(w, wp);
-
-	/*
-	 * Destroy this view's layout cell. The cell points at this panelink
-	 * (lc->pl), so freeing it clears only this view's cell, never the pane's
-	 * home layout cell (a different cell on a different panelink).
-	 */
-	if (pl->layout_cell != NULL) {
-		layout_destroy_cell(w, pl->layout_cell, &w->layout_root);
-		pl->layout_cell = NULL;
-		if (w->layout_root != NULL) {
-			layout_fix_offsets(w);
-			layout_fix_panes(w, NULL);
-		}
-		notify_window("window-layout-changed", w);
-	}
-
-	TAILQ_REMOVE(&w->z_index, pl, zentry);
-	panelink_remove(&w->panes, pl);
+	server_unlink_pane(w, pl);
 
 	recalculate_sizes();
 	server_redraw_window(w);

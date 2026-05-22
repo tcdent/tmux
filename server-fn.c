@@ -179,21 +179,57 @@ server_lock_client(struct client *c)
 	proc_send(c->peer, MSG_LOCK, -1, cmd, strlen(cmd) + 1);
 }
 
+/*
+ * Remove one window's view of a pane that is shown in more than one window.
+ * The caller must ensure the window has other panes (or use server_kill_pane,
+ * which handles emptying a window). The pane survives in its other windows.
+ */
+void
+server_unlink_pane(struct window *w, struct panelink *pl)
+{
+	struct window_pane	*wp = pl->pane;
+
+	server_unzoom_window(w);
+	server_client_remove_pane(wp);
+	window_lost_pane(w, wp);
+
+	if (pl->layout_cell != NULL) {
+		layout_destroy_cell(w, pl->layout_cell, &w->layout_root);
+		pl->layout_cell = NULL;
+		if (w->layout_root != NULL) {
+			layout_fix_offsets(w);
+			layout_fix_panes(w, NULL);
+		}
+		notify_window("window-layout-changed", w);
+	}
+	TAILQ_REMOVE(&w->z_index, pl, zentry);
+	panelink_remove(&w->panes, pl);
+}
+
 void
 server_kill_pane(struct window_pane *wp)
 {
-	struct window	*w = wp->window;
+	struct panelink	*pl, *pl1;
+	struct window	*w;
+	u_int		 refs;
 
-	if (window_count_panes(w, 1) == 1) {
-		server_kill_window(w, 1);
-		recalculate_sizes();
-	} else {
-		server_unzoom_window(w);
-		server_client_remove_pane(wp);
-		layout_close_pane(wp);
-		window_remove_pane(w, wp);
-		server_redraw_window(w);
+	/*
+	 * Destroy the pane completely: remove it from every window it is linked
+	 * into. Removing the last view frees the pane, so stop once it is gone.
+	 */
+	TAILQ_FOREACH_SAFE(pl, &wp->panelinks, wentry, pl1) {
+		w = pl->window;
+		refs = wp->references;
+		if (window_count_panes(w, 1) == 1)
+			server_kill_window(w, 1);
+		else {
+			server_unlink_pane(w, pl);
+			server_redraw_window(w);
+		}
+		if (refs == 1)
+			break;
 	}
+	recalculate_sizes();
 }
 
 void

@@ -46,5 +46,15 @@ $TMUX kill-window -t:1 || exit 1
 $TMUX splitw -t:0 -d || exit 1
 [ "$($TMUX lsp -t:0|wc -l)" -eq 2 ] || exit 1
 
+# kill-pane destroys a shared pane in every window it is linked into, without
+# crashing (regression: killing a linked view dereferenced a stale home
+# window). Afterwards the server is still responsive.
+NW=$($TMUX neww -dP -F'#{window_id}') || exit 1
+$TMUX link-pane -d -s "$P" -t"$NW" || exit 1
+[ "$($TMUX lsp -a -F'#{pane_id}'|grep -c "^$P\$")" = 2 ] || exit 1
+$TMUX kill-pane -t "$P" || exit 1
+[ "$($TMUX lsp -a -F'#{pane_id}'|grep -c "^$P\$")" = 0 ] || exit 1
+$TMUX lsw >/dev/null 2>&1 || exit 1
+
 $TMUX kill-server 2>/dev/null
 exit 0
