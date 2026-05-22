@@ -33,9 +33,11 @@ smoke-tested. Commits:
 These keep the diff tractable and are the known gap to "upstream-quality":
 
 1. **`wp->window` is kept** as a maintained back-pointer (the full design drops
-   it). The ~144 readers therefore resolve to the pane's *home* window, which is
-   why `#{pane_index}` and other per-view formats are wrong for a linked view
-   (needs `cmd_find_best_window_with_pane`, design §8 item 2).
+   it). It is re-homed in `panelink_remove` when the home view goes away, so it
+   never dangles. Pane *targeting* (`-t :win.%id`) and `#{pane_index}` are now
+   per-view correct (`window_has_pane` / `window_pane_index` take the window);
+   what remains routed through the home window are hooks/notifications
+   (`cmd_find_best_window_with_pane`, design §8 item 2 — not yet wired).
 2. **`w->active` is kept as `struct window_pane *`** (design §4 says
    `panelink *`). Fine while no pane is linked twice into one window (no `-f`).
 
@@ -52,15 +54,19 @@ These keep the diff tractable and are the known gap to "upstream-quality":
 
 ### Known limitations / still to do
 
-- **`pane-size` negotiation not implemented.** A pane has one grid; whichever
-  window's `layout_fix_panes` ran last sets its size. Two windows of different
-  sizes fight; single-client / one-window-visible is fine. This is the §3
-  `resize.c`-mirror work. (Now unblocked: every panelink carries its own cell.)
-- **Per-view formats** (`pane_index`, etc.) resolve via the home window
-  (shortcut 1).
-- **Not visually verified.** Behaviour confirmed headlessly (list-panes shows
-  the pane in two windows with a real split layout; unlink/refcount correct). A
-  real attached client has not been driven in this environment.
+- **`pane-size` implemented** (mirrors `window-size`; option
+  largest/smallest/manual/latest, default latest). `latest` resizes a shared
+  pane to the most recently viewed window's cell on switch — verified with an
+  attached client. `largest`/`smallest` compute the size correctly; when the
+  grid differs from a *non-current* view's cell that view would need clip/pad
+  rendering, which is fine for the single-client case (you only view one window
+  at a time) and is the remaining `largest`/`smallest` render work.
+- **`manual` pane-size** accepts the value but `resize-pane` does not yet write
+  `wp->manual_sx/sy`, so it no-ops until wired.
+- **Hooks/notifications** for a shared pane still resolve via the home window
+  (shortcut 1; `cmd_find_best_window_with_pane`).
+- **Not visually verified.** Behaviour confirmed functionally (list-panes, sizes
+  via an attached pty client, unlink/refcount/kill); no pixel-level check.
 
 > **Verification convention.** Every claim about tmux internals carries a
 > `file:line` against **this** tree (tmux master at tag `3.6b`, *including the
