@@ -56,6 +56,19 @@ $TMUX kill-pane -t "$P" || exit 1
 [ "$($TMUX lsp -a -F'#{pane_id}'|grep -c "^$P\$")" = 0 ] || exit 1
 $TMUX lsw >/dev/null 2>&1 || exit 1
 
+# When a shared pane's process exits it is destroyed in every window, without
+# crashing (regression: the exit was handled per window, freeing the pane then
+# dereferencing it again for the next window).
+$TMUX splitw -d || exit 1
+R=$($TMUX lsp -F'#{pane_id}' | tail -1)
+NW2=$($TMUX neww -dP -F'#{window_id}') || exit 1
+$TMUX link-pane -d -s "$R" -t"$NW2" || exit 1
+[ "$($TMUX lsp -a -F'#{pane_id}'|grep -c "^$R\$")" = 2 ] || exit 1
+$TMUX respawn-pane -k -t "$R" true || exit 1
+sleep 1
+[ "$($TMUX lsp -a -F'#{pane_id}'|grep -c "^$R\$")" = 0 ] || exit 1
+$TMUX lsw >/dev/null 2>&1 || exit 1
+
 # A pane can be linked into a window in another session and addressed there by
 # id, even though that is not its home session.
 $TMUX kill-server 2>/dev/null

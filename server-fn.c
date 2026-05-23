@@ -351,6 +351,8 @@ void
 server_destroy_pane(struct window_pane *wp, int notify)
 {
 	struct window		*w = wp->window;
+	struct window		*ow;
+	struct panelink		*opl;
 	struct screen_write_ctx	 ctx;
 	struct grid_cell	 gc;
 	int			 remain_on_exit;
@@ -412,6 +414,29 @@ server_destroy_pane(struct window_pane *wp, int notify)
 
 	if (notify)
 		notify_pane("pane-exited", wp);
+
+	/*
+	 * The process has gone, so this pane is finished in every window it is
+	 * shown in. Remove it from all windows other than its home window
+	 * first (killing any window left empty); the home window is then handled
+	 * below exactly as for an unshared pane.
+	 */
+	while (wp->references > 1) {
+		opl = NULL;
+		TAILQ_FOREACH(opl, &wp->panelinks, wentry) {
+			if (opl->window != wp->window)
+				break;
+		}
+		if (opl == NULL)
+			break;
+		ow = opl->window;
+		if (window_count_panes(ow, 1) == 1)
+			server_kill_window(ow, 1);
+		else {
+			server_unlink_pane(ow, opl);
+			server_redraw_window(ow);
+		}
+	}
 
 	server_unzoom_window(w);
 	server_client_remove_pane(wp);

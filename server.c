@@ -485,25 +485,25 @@ server_child_signal(void)
 static void
 server_child_exited(pid_t pid, int status)
 {
-	struct window		*w, *w1;
-	struct window_pane	*wp;
-	struct panelink		*pl;
+	struct window_pane	*wp, *wp1;
 
-	RB_FOREACH_SAFE(w, windows, &windows, w1) {
-		TAILQ_FOREACH(pl, &w->panes, entry) {
-			wp = pl->pane;
-			if (wp->pid == pid) {
-				wp->status = status;
-				wp->flags |= PANE_STATUSREADY;
+	/*
+	 * Iterate the global pane tree, not per window: a pane shown in more
+	 * than one window appears in several windows' lists, and destroying it
+	 * from the first would leave a dangling pointer for the rest.
+	 */
+	RB_FOREACH_SAFE(wp, window_pane_tree, &all_window_panes, wp1) {
+		if (wp->pid != pid)
+			continue;
+		wp->status = status;
+		wp->flags |= PANE_STATUSREADY;
 
-				log_debug("%%%u exited", wp->id);
-				wp->flags |= PANE_EXITED;
+		log_debug("%%%u exited", wp->id);
+		wp->flags |= PANE_EXITED;
 
-				if (window_pane_destroy_ready(wp))
-					server_destroy_pane(wp, 1);
-				break;
-			}
-		}
+		if (window_pane_destroy_ready(wp))
+			server_destroy_pane(wp, 1);
+		break;
 	}
 	job_check_died(pid, status);
 }
@@ -512,20 +512,16 @@ server_child_exited(pid_t pid, int status)
 static void
 server_child_stopped(pid_t pid, int status)
 {
-	struct window		*w;
 	struct window_pane	*wp;
-	struct panelink		*pl;
 
 	if (WSTOPSIG(status) == SIGTTIN || WSTOPSIG(status) == SIGTTOU)
 		return;
 
-	RB_FOREACH(w, windows, &windows) {
-		TAILQ_FOREACH(pl, &w->panes, entry) {
-			wp = pl->pane;
-			if (wp->pid == pid) {
-				if (killpg(pid, SIGCONT) != 0)
-					kill(pid, SIGCONT);
-			}
+	RB_FOREACH(wp, window_pane_tree, &all_window_panes) {
+		if (wp->pid == pid) {
+			if (killpg(pid, SIGCONT) != 0)
+				kill(pid, SIGCONT);
+			break;
 		}
 	}
 	job_check_died(pid, status);
