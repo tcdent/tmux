@@ -75,27 +75,37 @@ These keep the diff tractable and are the known gap to "upstream-quality":
    only that view's cell. Destroying a window that holds a linked view no
    longer corrupts the home pane (verified).
 
-### Remaining (optional / polish)
+### Done since "functional"
 
-- **`largest`/`smallest` rendering for simultaneous multi-client viewing.** With
-  `latest` (default) the grid always equals the currently-viewed window's cell,
-  so there is no mismatch. With `largest`/`smallest` the grid can differ from a
-  view's cell; a single client (viewing one window at a time) is fine, but two
-  clients viewing the pane in *different* windows at once would need the grid
-  clipped/padded to each cell. This is the doc's §3.3 clip/pad work and the only
-  rendering frontier left.
-- **Control-mode `%pane-linked`/`%pane-unlinked`.** Hooks fire; the control-mode
-  `%` notifications are not wired (they would report the home window without
-  more plumbing, and iTerm2 coordination is deferred — design item 9/§Step 8).
-- **Hooks resolve via the home window** (`wp->window`); a dedicated
-  `cmd_find_best_window_with_pane` (design §8 item 2) would pick per context.
-  Minor; `wp->window` is always valid (re-homed on removal).
+- **Control-mode `%pane-linked` / `%pane-unlinked`** — emitted to control
+  clients with the affected window and pane (verified with a `-C` client).
+- **Cross-session targeting** — a pane addressed by id in a session it reaches
+  only through a non-home window now resolves there
+  (`cmd_find_get_pane_with_session`).
+
+### Remaining (deliberately not done)
+
+- **`largest`/`smallest` rendering for two clients viewing the pane in
+  *different* windows at the same time.** With `latest` (default) the grid
+  always equals the currently-viewed window's cell, and a single client is
+  always correct. In the two-client/non-latest case the shared pane is drawn
+  with its most-recently-viewed window's geometry, so in the *other* window it
+  is mispositioned. This is **safe** — the draw loop already clips to the window
+  viewport (`ctx->ox/oy/sx/sy`), so there is no corruption of neighbouring
+  panes, verified with two pty clients on two sessions. Making it pixel-correct
+  means deriving render geometry per-window from `pl->layout_cell` (not the
+  global `wp->xoff/yoff/sx/sy`) across `screen_redraw_draw_pane`, the
+  border/cell-type functions and scrollbars, plus clip/pad of the grid to the
+  cell. That is a broad change to the hot render path with risk to *all*
+  rendering, for a niche scenario, and cannot be visually verified in this
+  headless environment — so it is left as the one rendering frontier.
 - **Two prototype shortcuts remain** (not user-visible): `wp->window` is kept
   rather than fully removed (buckets a/c/d), and `w->active` stays a
   `window_pane *` (no same-window double-link, i.e. no `link-pane -f`).
-- **Not visually verified.** Behaviour confirmed functionally (I/O via
-  send-keys/capture-pane, sizes via an attached pty client, targeting, hooks,
-  refcount/kill); no pixel-level check.
+- **Not pixel-verified.** Behaviour confirmed functionally (I/O via
+  send-keys/capture-pane, sizes via attached pty clients, single- and
+  cross-session targeting, hooks, control-mode, refcount/kill); no screen-level
+  pixel check (no attached-client screen capture available here).
 
 > **Verification convention.** Every claim about tmux internals carries a
 > `file:line` against **this** tree (tmux master at tag `3.6b`, *including the
