@@ -56,5 +56,15 @@ $TMUX kill-pane -t "$P" || exit 1
 [ "$($TMUX lsp -a -F'#{pane_id}'|grep -c "^$P\$")" = 0 ] || exit 1
 $TMUX lsw >/dev/null 2>&1 || exit 1
 
+# A pane can be linked into a window in another session and addressed there by
+# id, even though that is not its home session.
+$TMUX kill-server 2>/dev/null
+$TMUX -f/dev/null new -d -s one -x80 -y24 || exit 1
+$TMUX new -d -s two -x80 -y24 || exit 1
+Q=$($TMUX lsp -t one: -F'#{pane_id}')
+$TMUX link-pane -d -s "$Q" -t two: || exit 1
+[ "$($TMUX display -t two:."$Q" -p '#{session_name}')" = two ] || exit 1
+[ "$($TMUX display -t one:."$Q" -p '#{session_name}')" = one ] || exit 1
+
 $TMUX kill-server 2>/dev/null
 exit 0

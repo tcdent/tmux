@@ -540,10 +540,27 @@ cmd_find_get_pane_with_session(struct cmd_find_state *fs, const char *pane)
 
 	/* Check for pane ids starting with %. */
 	if (*pane == '%') {
+		struct panelink	*pl;
+
 		fs->wp = window_pane_find_by_id_str(pane);
 		if (fs->wp == NULL)
 			return (-1);
-		fs->w = fs->wp->window;
+		/*
+		 * Find a window in this session that contains the pane,
+		 * preferring the pane's home window. A shared pane may be in
+		 * this session only through a window other than its home.
+		 */
+		fs->w = NULL;
+		TAILQ_FOREACH(pl, &fs->wp->panelinks, wentry) {
+			if (!session_has(fs->s, pl->window))
+				continue;
+			if (fs->w == NULL || pl->window == fs->wp->window)
+				fs->w = pl->window;
+			if (pl->window == fs->wp->window)
+				break;
+		}
+		if (fs->w == NULL)
+			return (-1);
 		return (cmd_find_best_winlink_with_window(fs));
 	}
 
