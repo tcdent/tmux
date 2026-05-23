@@ -3080,6 +3080,44 @@ Select the last (previously selected) window.
 If no
 .Ar target\-session
 is specified, select the last window of the current session.
+.Tg linkp
+.It Xo Ic link\-pane
+.Op Fl bdhv
+.Op Fl l Ar size
+.Op Fl s Ar src\-pane
+.Op Fl t Ar dst\-pane
+.Xc
+.D1 Pq alias: Ic linkp
+Link
+.Ar src\-pane
+as an additional view in the window containing
+.Ar dst\-pane ,
+splitting
+.Ar dst\-pane
+as for
+.Ic split\-window .
+The pane then appears in both windows and shares the same process and content.
+Remove a view with
+.Ic unlink\-pane ;
+destroy the pane in every window with
+.Ic kill\-pane .
+The size of a pane shown in more than one window is controlled by the
+.Ic pane\-size
+option.
+The
+.Fl b ,
+.Fl h ,
+.Fl v
+and
+.Fl l
+options behave as for
+.Ic split\-window .
+If
+.Fl s
+is omitted and a marked pane is present (see
+.Ic select\-pane
+.Fl m ) ,
+the marked pane is used.
 .Tg link
 .It Xo Ic link\-window
 .Op Fl abdk
@@ -3790,6 +3828,26 @@ is omitted and a marked pane is present (see
 .Ic select\-pane
 .Fl m ) ,
 the window containing the marked pane is used rather than the current window.
+.Tg unlinkp
+.It Xo Ic unlink\-pane
+.Op Fl k
+.Op Fl t Ar target\-pane
+.Xc
+.D1 Pq alias: Ic unlinkp
+Remove the view of
+.Ar target\-pane
+from its window.
+The pane survives while it remains linked into another window;
+a pane's home window view cannot be unlinked (use
+.Ic break\-pane
+or
+.Ic kill\-pane ) .
+Unless
+.Fl k
+is given, the last reference to a pane may not be unlinked;
+if
+.Fl k
+is specified, the pane is destroyed.
 .Tg unlinkw
 .It Xo Ic unlink\-window
 .Op Fl k
@@ -5429,6 +5487,25 @@ see the
 section.
 Attributes are ignored.
 .Pp
+.It Xo Ic pane\-size
+.Ar largest | Ar smallest | Ar manual | Ar latest
+.Xc
+Configure the size of a pane that is shown in more than one window (see
+.Ic link\-pane ) .
+Such a pane has a single size, chosen \(en as
+.Ic window\-size
+chooses a window's size from its clients \(en from the windows the pane appears
+in.
+With
+.Ar largest
+or
+.Ar smallest
+the largest or smallest of those windows' cells is used.
+With
+.Ar latest ,
+the default, the cell in the most recently viewed window is used, so the pane is
+shown at its last viewed size.
+.Pp
 .It Ic popup\-style Ar style
 Set the popup style.
 See the
@@ -6537,6 +6614,8 @@ The following variables are available, where appropriate:
 .It Li "pane_key_mode" Ta "" Ta "Extended key reporting mode in this pane"
 .It Li "pane_last" Ta "" Ta "1 if last pane"
 .It Li "pane_left" Ta "" Ta "Left of pane"
+.It Li "pane_link_count" Ta "" Ta "Number of windows pane is linked into"
+.It Li "pane_linked" Ta "" Ta "1 if pane is linked into more than one window"
 .It Li "pane_marked" Ta "" Ta "1 if this is the marked pane"
 .It Li "pane_marked_set" Ta "" Ta "1 if a marked pane is set"
 .It Li "pane_mode" Ta "" Ta "Name of pane mode, if any"
