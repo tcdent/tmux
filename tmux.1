@@ -8244,10 +8244,25 @@ command.
 A window pane produced output.
 .Ar value
 escapes non-printable characters and backslash as octal \\xxx.
+.It Ic %pane\-linked Ar window\-id Ar pane\-id
+The pane with ID
+.Ar pane\-id
+has been linked into the window with ID
+.Ar window\-id
+(see
+.Ic link\-pane ) ,
+so it is now shown in that window in addition to its others.
 .It Ic %pane\-mode\-changed Ar pane\-id
 The pane with ID
 .Ar pane\-id
 has changed mode.
+.It Ic %pane\-unlinked Ar window\-id Ar pane\-id
+The window with ID
+.Ar window\-id
+no longer shows the pane with ID
+.Ar pane\-id
+(see
+.Ic unlink\-pane ) .
 .It Ic %paste\-buffer\-changed Ar name
 Paste buffer
 .Ar name

@@ -132,6 +132,10 @@ notify_callback(struct cmdq_item *item, void *data)
 		control_notify_window_layout_changed(ne->window);
 	if (strcmp(ne->name, "window-pane-changed") == 0)
 		control_notify_window_pane_changed(ne->window);
+	if (strcmp(ne->name, "pane-linked") == 0)
+		control_notify_pane_linked(ne->window, ne->pane);
+	if (strcmp(ne->name, "pane-unlinked") == 0)
+		control_notify_pane_unlinked(ne->window, ne->pane);
 	if (strcmp(ne->name, "window-unlinked") == 0)
 		control_notify_window_unlinked(ne->session, ne->window);
 	if (strcmp(ne->name, "window-linked") == 0)
@@ -309,6 +313,19 @@ notify_pane(const char *name, struct window_pane *wp)
 
 	cmd_find_from_pane(&fs, wp, 0);
 	notify_add(name, &fs, NULL, NULL, NULL, wp, NULL);
+}
+
+/*
+ * As notify_pane but for a specific window the pane is in (used by link-pane
+ * and unlink-pane, where the relevant window is not the pane's home window).
+ */
+void
+notify_pane_window(const char *name, struct window *w, struct window_pane *wp)
+{
+	struct cmd_find_state	fs;
+
+	cmd_find_from_pane(&fs, wp, 0);
+	notify_add(name, &fs, NULL, NULL, w, wp, NULL);
 }
 
 void

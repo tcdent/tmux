@@ -131,7 +131,7 @@ cmd_link_pane_exec(struct cmd *self, struct cmdq_item *item)
 	recalculate_sizes();
 
 	server_redraw_window(dst_w);
-	notify_pane("pane-linked", src_wp);
+	notify_pane_window("pane-linked", dst_w, src_wp);
 
 	if (!args_has(args, 'd')) {
 		window_set_active_pane(dst_w, src_wp, 1);

@@ -2548,6 +2548,7 @@ void	notify_winlink(const char *, struct winlink *);
 void	notify_session_window(const char *, struct session *, struct window *);
 void	notify_window(const char *, struct window *);
 void	notify_pane(const char *, struct window_pane *);
+void	notify_pane_window(const char *, struct window *, struct window_pane *);
 void	notify_paste_buffer(const char *, int);
 
 /* options.c */
@@ -3669,6 +3670,8 @@ void	control_remove_sub(struct client *, const char *);
 void	control_notify_pane_mode_changed(int);
 void	control_notify_window_layout_changed(struct window *);
 void	control_notify_window_pane_changed(struct window *);
+void	control_notify_pane_linked(struct window *, int);
+void	control_notify_pane_unlinked(struct window *, int);
 void	control_notify_window_unlinked(struct session *, struct window *);
 void	control_notify_window_linked(struct session *, struct window *);
 void	control_notify_window_renamed(struct window *);

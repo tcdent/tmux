@@ -189,7 +189,7 @@ server_unlink_pane(struct window *w, struct panelink *pl)
 {
 	struct window_pane	*wp = pl->pane;
 
-	notify_pane("pane-unlinked", wp);
+	notify_pane_window("pane-unlinked", w, wp);
 	server_unzoom_window(w);
 	server_client_remove_pane(wp);
 	window_lost_pane(w, wp);

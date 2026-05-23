@@ -89,6 +89,34 @@ control_notify_window_pane_changed(struct window *w)
 }
 
 void
+control_notify_pane_linked(struct window *w, int pane)
+{
+	struct client	*c;
+
+	if (w == NULL)
+		return;
+	TAILQ_FOREACH(c, &clients, entry) {
+		if (!CONTROL_SHOULD_NOTIFY_CLIENT(c))
+			continue;
+		control_write(c, "%%pane-linked @%u %%%d", w->id, pane);
+	}
+}
+
+void
+control_notify_pane_unlinked(struct window *w, int pane)
+{
+	struct client	*c;
+
+	if (w == NULL)
+		return;
+	TAILQ_FOREACH(c, &clients, entry) {
+		if (!CONTROL_SHOULD_NOTIFY_CLIENT(c))
+			continue;
+		control_write(c, "%%pane-unlinked @%u %%%d", w->id, pane);
+	}
+}
+
+void
 control_notify_window_unlinked(__unused struct session *s, struct window *w)
 {
 	struct client	*c;
