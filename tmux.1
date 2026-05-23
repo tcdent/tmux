@@ -5950,10 +5950,18 @@ option is on.
 Run when the focus exits a pane, if the
 .Ic focus\-events
 option is on.
+.It pane\-linked
+Run when a pane is linked into an additional window with
+.Ic link\-pane .
 .It pane\-set\-clipboard
 Run when the terminal clipboard is set using the
 .Xr xterm 1
 escape sequence.
+.It pane\-unlinked
+Run when one window's view of a pane is removed with
+.Ic unlink\-pane
+or
+.Ic kill\-pane .
 .It session\-created
 Run when a new session created.
 .It session\-closed
