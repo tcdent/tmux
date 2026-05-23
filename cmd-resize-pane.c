@@ -143,6 +143,17 @@ cmd_resize_pane_exec(struct cmd *self, struct cmdq_item *item)
 		layout_resize_pane(wp, LAYOUT_TOPBOTTOM, -adjust, 1);
 	else if (args_has(args, 'D'))
 		layout_resize_pane(wp, LAYOUT_TOPBOTTOM, adjust, 1);
+
+	/*
+	 * If this pane is sized manually (only meaningful when it is shown in
+	 * more than one window) record the new size as its manual size.
+	 */
+	if (options_get_number(wp->options, "pane-size") == WINDOW_SIZE_MANUAL) {
+		wp->manual_sx = wp->sx;
+		wp->manual_sy = wp->sy;
+		recalculate_pane_size(wp);
+	}
+
 	server_redraw_window(wl->window);
 
 	return (CMD_RETURN_NORMAL);
