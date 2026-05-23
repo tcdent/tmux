@@ -82,30 +82,29 @@ These keep the diff tractable and are the known gap to "upstream-quality":
 - **Cross-session targeting** — a pane addressed by id in a session it reaches
   only through a non-home window now resolves there
   (`cmd_find_get_pane_with_session`).
+- **Per-window render geometry** — the redraw path (pane content, borders,
+  cell-ownership, pane-status, scrollbars) draws a shared pane at its view
+  rectangle in the window being rendered (`screen_redraw_pane_box`,
+  `pl->xoff/yoff/sx/sy` computed for every view by `layout_fix_panes`), with
+  the grid clipped to the view. So two clients viewing the pane in *different*
+  windows now each render it correctly. Single-client rendering is byte
+  identical (the panelink geometry equals `wp`'s for the owning window).
+- **Process-exit lifetime fix** — when a shared pane's process exits it is now
+  destroyed in every window (and `server_child_exited` iterates the global pane
+  tree once), fixing a use-after-free that crashed the server in the two-client
+  /differing-size/`largest` case. Covered by `regress/link-pane.sh`.
 
 ### Remaining (deliberately not done)
 
-- **`largest`/`smallest` rendering for two clients viewing the pane in
-  *different* windows at the same time.** With `latest` (default) the grid
-  always equals the currently-viewed window's cell, and a single client is
-  always correct. In the two-client/non-latest case the shared pane is drawn
-  with its most-recently-viewed window's geometry, so in the *other* window it
-  is mispositioned. This is **safe** — the draw loop already clips to the window
-  viewport (`ctx->ox/oy/sx/sy`), so there is no corruption of neighbouring
-  panes, verified with two pty clients on two sessions. Making it pixel-correct
-  means deriving render geometry per-window from `pl->layout_cell` (not the
-  global `wp->xoff/yoff/sx/sy`) across `screen_redraw_draw_pane`, the
-  border/cell-type functions and scrollbars, plus clip/pad of the grid to the
-  cell. That is a broad change to the hot render path with risk to *all*
-  rendering, for a niche scenario, and cannot be visually verified in this
-  headless environment — so it is left as the one rendering frontier.
 - **Two prototype shortcuts remain** (not user-visible): `wp->window` is kept
   rather than fully removed (buckets a/c/d), and `w->active` stays a
   `window_pane *` (no same-window double-link, i.e. no `link-pane -f`).
 - **Not pixel-verified.** Behaviour confirmed functionally (I/O via
   send-keys/capture-pane, sizes via attached pty clients, single- and
-  cross-session targeting, hooks, control-mode, refcount/kill); no screen-level
-  pixel check (no attached-client screen capture available here).
+  cross-session targeting, hooks, control-mode, refcount/kill, no crash under
+  two clients/`largest`); the per-window render *geometry* is correct by
+  construction and regress-safe, but composed multi-pane screens were not
+  pixel-diffed (no attached-client screen capture available here).
 
 > **Verification convention.** Every claim about tmux internals carries a
 > `file:line` against **this** tree (tmux master at tag `3.6b`, *including the
