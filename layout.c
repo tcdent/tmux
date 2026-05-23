@@ -376,6 +376,7 @@ layout_fix_panes(struct window *w, struct window_pane *skip)
 	struct panelink		*pl;
 	struct layout_cell	*lc;
 	int			 status, scrollbars, sb_pos, sb_w, sb_pad;
+	int			 xoff, yoff;
 	u_int			 sx, sy;
 
 	status = options_get_number(w->options, "pane-border-status");
@@ -387,24 +388,15 @@ layout_fix_panes(struct window *w, struct window_pane *skip)
 		if ((lc = pl->layout_cell) == NULL || wp == skip)
 			continue;
 
-		/*
-		 * A pane shown in more than one window has a single size and
-		 * offset; only its most recently viewed window controls them
-		 * (mirroring window-size 'latest'). recalculate_pane_size
-		 * applies the pane-size option across all its windows.
-		 */
-		if (wp->latest != NULL && wp->latest != pl)
-			continue;
-
-		wp->xoff = lc->xoff;
-		wp->yoff = lc->yoff;
+		xoff = lc->xoff;
+		yoff = lc->yoff;
 		sx = lc->sx;
 		sy = lc->sy;
 
 		if ((~wp->flags & PANE_FLOATING) &&
 		    layout_add_horizontal_border(w, lc, status)) {
 			if (status == PANE_STATUS_TOP)
-				wp->yoff++;
+				yoff++;
 			sy--;
 		}
 
@@ -417,12 +409,11 @@ layout_fix_panes(struct window *w, struct window_pane *skip)
 				sb_pad = 0;
 			if (sb_pos == PANE_SCROLLBARS_LEFT) {
 				if ((int)sx - sb_w < PANE_MINIMUM) {
-					wp->xoff = wp->xoff +
-					    (int)sx - PANE_MINIMUM;
+					xoff = xoff + (int)sx - PANE_MINIMUM;
 					sx = PANE_MINIMUM;
 				} else {
 					sx = sx - sb_w - sb_pad;
-					wp->xoff = wp->xoff + sb_w + sb_pad;
+					xoff = xoff + sb_w + sb_pad;
 				}
 			} else /* sb_pos == PANE_SCROLLBARS_RIGHT */
 				if ((int)sx - sb_w - sb_pad < PANE_MINIMUM)
@@ -432,7 +423,22 @@ layout_fix_panes(struct window *w, struct window_pane *skip)
 			wp->flags |= PANE_REDRAWSCROLLBAR;
 		}
 
-		window_pane_resize(wp, sx, sy);
+		/* Per-view geometry; used when rendering this window. */
+		pl->xoff = xoff;
+		pl->yoff = yoff;
+		pl->sx = sx;
+		pl->sy = sy;
+
+		/*
+		 * The pane has one grid; only its most recently viewed window
+		 * (or its only window) sets the pane's own offset and grid size.
+		 * recalculate_pane_size then applies the pane-size option.
+		 */
+		if (wp->latest == NULL || wp->latest == pl) {
+			wp->xoff = xoff;
+			wp->yoff = yoff;
+			window_pane_resize(wp, sx, sy);
+		}
 	}
 }
 

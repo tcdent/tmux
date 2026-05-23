@@ -1258,6 +1258,17 @@ struct panelink {
 	struct layout_cell	*layout_cell;
 	struct layout_cell	*saved_layout_cell;
 
+	/*
+	 * Per-view drawn geometry (this window's view rectangle for the pane),
+	 * computed by layout_fix_panes. The pane's grid (wp->base) may be a
+	 * different size when the pane is shown in more than one window; the
+	 * renderer draws the grid clipped/padded to this rectangle.
+	 */
+	int			 xoff;
+	int			 yoff;
+	u_int			 sx;
+	u_int			 sy;
+
 	TAILQ_ENTRY(panelink)	 entry;		/* in window->panes (positional) */
 	TAILQ_ENTRY(panelink)	 sentry;	/* in window->last_panelinks */
 	TAILQ_ENTRY(panelink)	 zentry;	/* in window->z_index */
