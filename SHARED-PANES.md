@@ -8,13 +8,34 @@ Goal: daily use for the author, and an upstream-quality patch series at the end.
 
 ---
 
-## Prototype status (working)
+## Status: functional
 
-A functional prototype is committed on this branch. `link-pane` puts a pane into
-a second window; `unlink-pane [-k]` removes a view. Every step builds clean
-(`-Wall -W -Wshadow -Wmissing-prototypes ...`, zero warnings) and is
-smoke-tested. Commits:
+The feature works end to end and is committed on this branch. `link-pane` puts a
+pane into a second window; it is one terminal (one PTY/grid) shown in both — I/O
+through either window's view reaches the same process and renders in both
+(verified with `send-keys`/`capture-pane`). Every step builds clean
+(`-Wall -W -Wshadow -Wmissing-prototypes ...`, zero warnings); the regress suite
+passes (the only consistent failure, `copy-mode-test-vi`, also fails on the
+unmodified baseline; `input-keys` is flaky in this container).
 
+What works:
+- **Commands** — `link-pane`, `unlink-pane [-k]`; `kill-pane` destroys a shared
+  pane in every window (refcount cascade); `break-pane`/`swap-pane`/
+  `respawn-pane`/navigation all operate on shared panes without crashing.
+- **`pane-size`** — mirrors `window-size` (largest/smallest/manual/latest,
+  default latest). `latest` resizes the pane to the most recently viewed
+  window's cell on switch (verified with an attached client); `manual` is set
+  by `resize-pane`.
+- **Per-view correctness** — pane targeting (`-t :win.%id`), `#{pane_index}`
+  and `#{pane_active}` resolve relative to the addressed/displaying window.
+- **Formats** — `#{pane_linked}`, `#{pane_link_count}`.
+- **Hooks** — `pane-linked` / `pane-unlinked`.
+- **Docs** — `tmux.1` covers `link-pane`, `unlink-pane`, `pane-size`, the new
+  formats and hooks.
+- **Tests** — `regress/link-pane.sh` covers link/unlink/targeting/per-view
+  index/kill-across-views.
+
+### Commit-by-commit
 - **Step 1** — `struct panelink`, refcount, tier-1 helpers (dead code).
 - **Step 2** — per-window panelink list maintained in lockstep; destroy via
   refcount.
@@ -23,8 +44,10 @@ smoke-tested. Commits:
   (`panes`). `entry`/`sentry`/`zentry` now live on the panelink; `w->panes` is
   the single positional panelink list (the Step-2 parallel `w->panelinks` was
   folded into it).
-- **Step 3d** — `layout_fix_panes` selects the per-view cell.
-- **Commands** — `link-pane` / `unlink-pane`.
+- **Step 3d** — `layout_cell` moved onto the panelink (`lc->pl`); per-view.
+- **Commands** — `link-pane` / `unlink-pane` / `server_unlink_pane`.
+- **pane-size**, **per-view targeting/index/active**, **formats**, **hooks**,
+  **man page**.
 - Plus a **pre-existing upstream bugfix**: `layout_assign` flagged tiled panes
   floating on layout restore.
 
@@ -52,21 +75,27 @@ These keep the diff tractable and are the known gap to "upstream-quality":
    only that view's cell. Destroying a window that holds a linked view no
    longer corrupts the home pane (verified).
 
-### Known limitations / still to do
+### Remaining (optional / polish)
 
-- **`pane-size` implemented** (mirrors `window-size`; option
-  largest/smallest/manual/latest, default latest). `latest` resizes a shared
-  pane to the most recently viewed window's cell on switch — verified with an
-  attached client. `largest`/`smallest` compute the size correctly; when the
-  grid differs from a *non-current* view's cell that view would need clip/pad
-  rendering, which is fine for the single-client case (you only view one window
-  at a time) and is the remaining `largest`/`smallest` render work.
-- **`manual` pane-size** accepts the value but `resize-pane` does not yet write
-  `wp->manual_sx/sy`, so it no-ops until wired.
-- **Hooks/notifications** for a shared pane still resolve via the home window
-  (shortcut 1; `cmd_find_best_window_with_pane`).
-- **Not visually verified.** Behaviour confirmed functionally (list-panes, sizes
-  via an attached pty client, unlink/refcount/kill); no pixel-level check.
+- **`largest`/`smallest` rendering for simultaneous multi-client viewing.** With
+  `latest` (default) the grid always equals the currently-viewed window's cell,
+  so there is no mismatch. With `largest`/`smallest` the grid can differ from a
+  view's cell; a single client (viewing one window at a time) is fine, but two
+  clients viewing the pane in *different* windows at once would need the grid
+  clipped/padded to each cell. This is the doc's §3.3 clip/pad work and the only
+  rendering frontier left.
+- **Control-mode `%pane-linked`/`%pane-unlinked`.** Hooks fire; the control-mode
+  `%` notifications are not wired (they would report the home window without
+  more plumbing, and iTerm2 coordination is deferred — design item 9/§Step 8).
+- **Hooks resolve via the home window** (`wp->window`); a dedicated
+  `cmd_find_best_window_with_pane` (design §8 item 2) would pick per context.
+  Minor; `wp->window` is always valid (re-homed on removal).
+- **Two prototype shortcuts remain** (not user-visible): `wp->window` is kept
+  rather than fully removed (buckets a/c/d), and `w->active` stays a
+  `window_pane *` (no same-window double-link, i.e. no `link-pane -f`).
+- **Not visually verified.** Behaviour confirmed functionally (I/O via
+  send-keys/capture-pane, sizes via an attached pty client, targeting, hooks,
+  refcount/kill); no pixel-level check.
 
 > **Verification convention.** Every claim about tmux internals carries a
 > `file:line` against **this** tree (tmux master at tag `3.6b`, *including the
