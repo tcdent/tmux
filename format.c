@@ -2023,12 +2023,43 @@ format_cb_synchronized_output_flag(struct format_tree *ft)
 static void *
 format_cb_pane_active(struct format_tree *ft)
 {
+	struct window	*w;
+
 	if (ft->wp != NULL) {
-		if (ft->wp == ft->wp->window->active)
+		w = (ft->w != NULL) ? ft->w : ft->wp->window;
+		if (ft->wp == w->active)
 			return (xstrdup("1"));
 		return (xstrdup("0"));
 	}
 	return (NULL);
+}
+
+/* Callback for pane_link_count. */
+static void *
+format_cb_pane_link_count(struct format_tree *ft)
+{
+	struct panelink	*pl;
+	u_int		 n = 0;
+
+	if (ft->wp == NULL)
+		return (NULL);
+	TAILQ_FOREACH(pl, &ft->wp->panelinks, wentry)
+		n++;
+	return (format_printf("%u", n));
+}
+
+/* Callback for pane_linked. */
+static void *
+format_cb_pane_linked(struct format_tree *ft)
+{
+	struct panelink	*pl;
+	u_int		 n = 0;
+
+	if (ft->wp == NULL)
+		return (NULL);
+	TAILQ_FOREACH(pl, &ft->wp->panelinks, wentry)
+		n++;
+	return (xstrdup(n > 1 ? "1" : "0"));
 }
 
 /* Callback for pane_at_left. */
@@ -3444,6 +3475,12 @@ static const struct format_table_entry format_table[] = {
 	},
 	{ "pane_left", FORMAT_TABLE_STRING,
 	  format_cb_pane_left
+	},
+	{ "pane_link_count", FORMAT_TABLE_STRING,
+	  format_cb_pane_link_count
+	},
+	{ "pane_linked", FORMAT_TABLE_STRING,
+	  format_cb_pane_linked
 	},
 	{ "pane_marked", FORMAT_TABLE_STRING,
 	  format_cb_pane_marked
